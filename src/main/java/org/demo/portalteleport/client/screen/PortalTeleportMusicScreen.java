@@ -28,66 +28,152 @@ import java.util.*;
 import java.util.concurrent.*;
 import java.util.Base64;
 
+/**
+ * 网易云音乐播放器界面
+ * 功能：
+ * - 搜索歌曲并播放
+ * - 扫码登录网易云账号
+ * - 播放控制（暂停/停止）
+ * - 登出账号
+ * @author SelfAbandonment
+ */
 public final class PortalTeleportMusicScreen extends Screen {
 
+    /** 界面标签页枚举 */
     private enum Tab { SEARCH, QR_LOGIN }
 
+    /** API 服务器地址 */
     private final String baseUrl;
+
+    /** 当前标签页 */
     private Tab tab = Tab.SEARCH;
 
-    // shared
+    // ==================== 共享状态 ====================
+
+    /** 异步任务执行器 */
     private ScheduledExecutorService exec;
 
+    /** 信息提示文本 */
     private volatile String infoText = "";
+
+    /** 错误提示文本 */
     private volatile String errorText = "";
 
-    // ---- SEARCH tab widgets ----
+    // ==================== 搜索标签页组件 ====================
+
+    /** 搜索关键词输入框 */
     private EditBox keywordBox;
+
+    /** 搜索按钮 */
     private Button searchBtn;
+
+    /** 暂停按钮 */
     private Button pauseBtn;
+
+    /** 停止按钮 */
     private Button stopBtn;
+
+    /** 跳转到扫码登录按钮 */
     private Button toQrBtn;
+
+    /** 登出按钮 */
     private Button clearSessionBtn;
 
+    /** 歌曲列表按钮 */
     private final List<Button> songButtons = new ArrayList<>();
-    private List<NcmApiClient.SearchSong> currentSongs = new ArrayList<>();  // 保存搜索结果
-    private int scrollOffset = 0;  // 滚动偏移量
 
-    // ---- QR tab widgets/state ----
+    /** 当前搜索结果 */
+    private List<NcmApiClient.SearchSong> currentSongs = new ArrayList<>();
+
+    /** 列表滚动偏移量 */
+    private int scrollOffset = 0;
+
+    // ==================== 扫码登录标签页组件/状态 ====================
+
+    /** 返回搜索按钮 */
     private Button backToSearchBtn;
+
+    /** 刷新二维码按钮 */
     private Button refreshQrBtn;
 
+    /** 二维码唯一标识 */
     private volatile String unikey;
+
+    /** 上次轮询返回的状态码 */
     private volatile int lastCode = -1;
-    private volatile String qrStatus = "";
+
+    /** 二维码状态文本 */
+    private volatile String qrStatus;
+
+    /** 轮询任务 Future */
     private ScheduledFuture<?> pollFuture;
 
+    /** 二维码纹理 */
     @Nullable private DynamicTexture qrTexture;
-    @Nullable private ResourceLocation qrTextureLocation;
-    private int qrW = 0, qrH = 0;
 
-    // ---- UI Theme Colors ----
+    /** 二维码纹理资源位置 */
+    @Nullable private ResourceLocation qrTextureLocation;
+
+    /** 二维码宽度 */
+    private int qrW = 0;
+
+    /** 二维码高度 */
+    private int qrH = 0;
+
+    // ==================== UI 主题颜色 ====================
+
+    /** 深色背景 */
     private static final int COLOR_BG_DARK = FastColor.ARGB32.color(220, 20, 20, 25);
+
+    /** 面板背景 */
     private static final int COLOR_BG_PANEL = FastColor.ARGB32.color(200, 35, 35, 45);
+
+    /** 强调色（红色） */
     private static final int COLOR_ACCENT = FastColor.ARGB32.color(255, 225, 60, 80);
+
+    /** 浅强调色 */
     private static final int COLOR_ACCENT_LIGHT = FastColor.ARGB32.color(255, 255, 100, 120);
+
+    /** 主要文字颜色 */
     private static final int COLOR_TEXT_PRIMARY = 0xFFFFFF;
+
+    /** 次要文字颜色 */
     private static final int COLOR_TEXT_SECONDARY = 0xBBBBBB;
+
+    /** 错误文字颜色 */
     private static final int COLOR_TEXT_ERROR = 0xFF6B6B;
+
+    /** 成功文字颜色 */
     private static final int COLOR_TEXT_SUCCESS = 0x6BFF6B;
+
+    /** 边框颜色 */
     private static final int COLOR_BORDER = FastColor.ARGB32.color(255, 60, 60, 70);
 
-    // Layout constants
+    // ==================== 布局常量 ====================
+
+    /** 顶部区域高度 */
     private static final int HEADER_HEIGHT = 50;
+
+    /** 底部区域高度 */
     private static final int FOOTER_HEIGHT = 45;
+
+    /** 侧边距 */
     private static final int SIDE_MARGIN = 20;
 
+    /**
+     * 构造函数
+     *
+     * @param baseUrl API 服务器地址
+     */
     public PortalTeleportMusicScreen(String baseUrl) {
         super(I18n.translate(I18n.MUSIC_TITLE));
         this.baseUrl = baseUrl;
         this.qrStatus = I18n.translateString(I18n.MUSIC_QR_NOT_STARTED);
     }
 
+    /**
+     * 初始化界面
+     */
     @Override
     protected void init() {
         exec = Executors.newSingleThreadScheduledExecutor(r -> {
@@ -101,15 +187,23 @@ public final class PortalTeleportMusicScreen extends Screen {
         setTab(Tab.SEARCH);
     }
 
+    /**
+     * 关闭界面时清理资源
+     */
     @Override
     public void onClose() {
         super.onClose();
         stopPolling();
         deleteQrTexture();
-        if (exec != null) exec.shutdownNow();
+        if (exec != null) {
+            exec.shutdownNow();
+        }
         exec = null;
     }
 
+    /**
+     * 构建界面组件
+     */
     private void buildWidgets() {
         int cx = this.width / 2;
         int contentTop = HEADER_HEIGHT + 10;
@@ -164,6 +258,11 @@ public final class PortalTeleportMusicScreen extends Screen {
         addRenderableWidget(refreshQrBtn);
     }
 
+    /**
+     * 切换标签页
+     *
+     * @param t 目标标签页
+     */
     private void setTab(Tab t) {
         this.tab = t;
         this.errorText = "";
@@ -199,6 +298,9 @@ public final class PortalTeleportMusicScreen extends Screen {
         refreshInfo();
     }
 
+    /**
+     * 刷新登录状态信息
+     */
     private void refreshInfo() {
         SessionStore.Session session = SessionStore.loadOrNull();
         if (session == null) {
@@ -209,13 +311,21 @@ public final class PortalTeleportMusicScreen extends Screen {
         infoText = has ? I18n.translateString(I18n.MUSIC_INFO_LOGGED_IN) : I18n.translateString(I18n.MUSIC_INFO_LOGIN_INCOMPLETE);
     }
 
-    // ---------------- SEARCH ----------------
+    // ==================== 搜索功能 ====================
 
+    /**
+     * 清除歌曲列表按钮
+     */
     private void clearSongButtons() {
-        for (Button b : songButtons) removeWidget(b);
+        for (Button b : songButtons) {
+            removeWidget(b);
+        }
         songButtons.clear();
     }
 
+    /**
+     * 清除登录会话（登出）
+     */
     private void clearSession() {
         try {
             var p = SessionStore.debugPath();
@@ -227,6 +337,9 @@ public final class PortalTeleportMusicScreen extends Screen {
         }
     }
 
+    /**
+     * 异步执行搜索
+     */
     private void doSearchAsync() {
         errorText = "";
         clearSongButtons();
@@ -273,13 +386,21 @@ public final class PortalTeleportMusicScreen extends Screen {
         }));
     }
 
+    /**
+     * 渲染歌曲列表按钮
+     *
+     * @param songs 搜索结果
+     */
     private void renderSongButtons(List<NcmApiClient.SearchSong> songs) {
         clearSongButtons();
-        currentSongs = new ArrayList<>(songs);  // 保存搜索结果
-        scrollOffset = 0;  // 重置滚动位置
+        currentSongs = new ArrayList<>(songs);
+        scrollOffset = 0;
         rebuildSongButtons();
     }
 
+    /**
+     * 重建歌曲列表按钮（用于滚动）
+     */
     private void rebuildSongButtons() {
         // 清除现有按钮
         for (Button b : songButtons) removeWidget(b);
@@ -338,8 +459,11 @@ public final class PortalTeleportMusicScreen extends Screen {
         for (Button b : songButtons) b.visible = (tab == Tab.SEARCH);
     }
 
-    // ---------------- QR LOGIN ----------------
+    // ==================== 扫码登录功能 ====================
 
+    /**
+     * 异步刷新二维码
+     */
     private void refreshQrAsync() {
         stopPolling();
         qrStatus = I18n.translateString(I18n.MUSIC_QR_GENERATING);
@@ -380,6 +504,11 @@ public final class PortalTeleportMusicScreen extends Screen {
         }, exec);
     }
 
+    /**
+     * 开始轮询二维码状态
+     *
+     * @param client API 客户端
+     */
     private void startPolling(NcmApiClient client) {
         if (exec == null) return;
         if (unikey == null || unikey.isBlank()) return;
@@ -414,6 +543,11 @@ public final class PortalTeleportMusicScreen extends Screen {
         }, 0, 2, TimeUnit.SECONDS);
     }
 
+    /**
+     * 登录成功回调
+     *
+     * @param cookieRaw 原始 Cookie
+     */
     private void onLoginSuccess(String cookieRaw) {
         stopPolling();
 
@@ -434,12 +568,22 @@ public final class PortalTeleportMusicScreen extends Screen {
         Minecraft.getInstance().execute(() -> setTab(Tab.SEARCH));
     }
 
+    /**
+     * 停止轮询
+     */
     private void stopPolling() {
         if (pollFuture != null) {
             pollFuture.cancel(true);
             pollFuture = null;
         }
     }
+
+    /**
+     * 加载二维码纹理
+     *
+     * @param dataUrl Base64 编码的图片数据
+     * @throws Exception 加载失败
+     */
     private void loadQrTexture(String dataUrl) throws Exception {
         deleteQrTexture();
 
@@ -463,16 +607,25 @@ public final class PortalTeleportMusicScreen extends Screen {
         tm.getTexture(qrTextureLocation).setFilter(false, false);
     }
 
+    /**
+     * 删除二维码纹理
+     */
     private void deleteQrTexture() {
         qrTextureLocation = null;
         if (qrTexture != null) {
-            try { qrTexture.close(); } catch (Exception ignored) {}
+            try {
+                qrTexture.close();
+            } catch (Exception ignored) {
+            }
             qrTexture = null;
         }
         qrW = 0;
         qrH = 0;
     }
 
+    /**
+     * 鼠标滚轮事件处理
+     */
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
         if (tab == Tab.SEARCH && !currentSongs.isEmpty()) {
@@ -499,21 +652,33 @@ public final class PortalTeleportMusicScreen extends Screen {
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
+    /**
+     * 是否暂停游戏
+     */
     @Override
     public boolean isPauseScreen() {
         return false;
     }
 
+    /**
+     * 渲染背景（留空以保持二维码清晰）
+     */
     @Override
     public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {
-        // Intentionally empty: keep background clear for QR scanning (no dim overlay)
+        // 留空：不渲染默认背景
     }
 
+    /**
+     * 渲染透明背景（留空以保持二维码清晰）
+     */
     @Override
     public void renderTransparentBackground(GuiGraphics graphics) {
-        // Intentionally empty: keep background clear for QR scanning
+        // 留空：不渲染透明背景
     }
 
+    /**
+     * 渲染界面
+     */
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         // 绘制半透明深色背景
@@ -556,6 +721,11 @@ public final class PortalTeleportMusicScreen extends Screen {
         super.render(g, mouseX, mouseY, partialTick);
     }
 
+    /**
+     * 绘制二维码面板
+     *
+     * @param g 图形上下文
+     */
     private void drawQrPanel(GuiGraphics g) {
         int cx = this.width / 2;
 

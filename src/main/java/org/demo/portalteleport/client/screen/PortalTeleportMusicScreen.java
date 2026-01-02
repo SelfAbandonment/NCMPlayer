@@ -493,11 +493,14 @@ public final class PortalTeleportMusicScreen extends Screen {
             int dx = boxX + padding + (inner - drawW) / 2;
             int dy = top + padding + (inner - drawH) / 2;
 
+            // blit(location, x, y, width, height, uOffset, vOffset, uWidth, vHeight, texW, texH)
+            // Draw the FULL texture (0,0 to qrW,qrH) scaled into (dx,dy to dx+drawW, dy+drawH)
             g.blit(qrTextureLocation,
-                    dx, dy,
-                    0, 0,
-                    drawW, drawH,
-                    qrW, qrH);
+                    dx, dy,              // screen position
+                    drawW, drawH,        // draw size on screen
+                    0, 0,                // UV offset in texture
+                    qrW, qrH,            // UV region size (full texture)
+                    qrW, qrH);           // texture dimensions
 
             RenderSystem.enableBlend();
         } else {

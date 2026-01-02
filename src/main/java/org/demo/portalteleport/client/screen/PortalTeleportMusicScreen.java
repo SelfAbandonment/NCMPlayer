@@ -48,6 +48,8 @@ public final class PortalTeleportMusicScreen extends Screen {
     private Button clearSessionBtn;
 
     private final List<Button> songButtons = new ArrayList<>();
+    private List<NcmApiClient.SearchSong> currentSongs = new ArrayList<>();  // 保存搜索结果
+    private int scrollOffset = 0;  // 滚动偏移量
 
     // ---- QR tab widgets/state ----
     private Button backToSearchBtn;
@@ -62,8 +64,24 @@ public final class PortalTeleportMusicScreen extends Screen {
     @Nullable private ResourceLocation qrTextureLocation;
     private int qrW = 0, qrH = 0;
 
+    // ---- UI Theme Colors ----
+    private static final int COLOR_BG_DARK = FastColor.ARGB32.color(220, 20, 20, 25);
+    private static final int COLOR_BG_PANEL = FastColor.ARGB32.color(200, 35, 35, 45);
+    private static final int COLOR_ACCENT = FastColor.ARGB32.color(255, 225, 60, 80);
+    private static final int COLOR_ACCENT_LIGHT = FastColor.ARGB32.color(255, 255, 100, 120);
+    private static final int COLOR_TEXT_PRIMARY = 0xFFFFFF;
+    private static final int COLOR_TEXT_SECONDARY = 0xBBBBBB;
+    private static final int COLOR_TEXT_ERROR = 0xFF6B6B;
+    private static final int COLOR_TEXT_SUCCESS = 0x6BFF6B;
+    private static final int COLOR_BORDER = FastColor.ARGB32.color(255, 60, 60, 70);
+
+    // Layout constants
+    private static final int HEADER_HEIGHT = 50;
+    private static final int FOOTER_HEIGHT = 45;
+    private static final int SIDE_MARGIN = 20;
+
     public PortalTeleportMusicScreen(String baseUrl) {
-        super(Component.literal("PortalTeleport - NCM"));
+        super(Component.literal("♪ 网易云音乐"));
         this.baseUrl = baseUrl;
     }
 
@@ -91,40 +109,55 @@ public final class PortalTeleportMusicScreen extends Screen {
 
     private void buildWidgets() {
         int cx = this.width / 2;
+        int contentTop = HEADER_HEIGHT + 10;
+        int footerY = this.height - FOOTER_HEIGHT + 10;
 
-        // Tab buttons
-        toQrBtn = Button.builder(Component.literal("二维码登录"), b -> setTab(Tab.QR_LOGIN))
-                .bounds(10, 10, 90, 20).build();
+        // Tab buttons - styled
+        toQrBtn = Button.builder(Component.literal("🔐 扫码登录"), b -> setTab(Tab.QR_LOGIN))
+                .bounds(SIDE_MARGIN, 15, 100, 20).build();
         addRenderableWidget(toQrBtn);
 
-        backToSearchBtn = Button.builder(Component.literal("返回搜索"), b -> setTab(Tab.SEARCH))
-                .bounds(10, 10, 90, 20).build();
+        backToSearchBtn = Button.builder(Component.literal("← 返回搜索"), b -> setTab(Tab.SEARCH))
+                .bounds(SIDE_MARGIN, 15, 100, 20).build();
         addRenderableWidget(backToSearchBtn);
 
-        // SEARCH tab
-        keywordBox = new EditBox(this.font, cx - 120, 40, 240, 20, Component.literal("关键词"));
-        keywordBox.setValue("周杰伦");
+        // SEARCH tab - search bar with button on the right
+        int searchBarWidth = Math.min(240, this.width - 120);
+        int searchBtnWidth = 70;
+        int totalSearchWidth = searchBarWidth + 5 + searchBtnWidth;
+        int searchStartX = cx - totalSearchWidth / 2;
+
+        keywordBox = new EditBox(this.font, searchStartX, contentTop, searchBarWidth, 22, Component.literal("搜索歌曲..."));
+        keywordBox.setHint(Component.literal("输入歌曲、歌手或专辑名..."));
+        keywordBox.setValue("");
+        keywordBox.setMaxLength(100);
         addRenderableWidget(keywordBox);
 
-        searchBtn = Button.builder(Component.literal("搜索"), b -> doSearchAsync())
-                .bounds(cx - 40, 66, 80, 20).build();
+        searchBtn = Button.builder(Component.literal("🔍 搜索"), b -> doSearchAsync())
+                .bounds(searchStartX + searchBarWidth + 5, contentTop, searchBtnWidth, 22).build();
         addRenderableWidget(searchBtn);
 
-        pauseBtn = Button.builder(Component.literal("暂停/继续"), b -> ClientMusicController.togglePause())
-                .bounds(cx - 120, this.height - 28, 80, 20).build();
+        // Footer buttons - evenly spaced
+        int btnWidth = 75;
+        int btnGap = 10;
+        int totalBtnWidth = btnWidth * 3 + btnGap * 2;
+        int btnStartX = cx - totalBtnWidth / 2;
+
+        pauseBtn = Button.builder(Component.literal("⏯ 暂停"), b -> ClientMusicController.togglePause())
+                .bounds(btnStartX, footerY, btnWidth, 20).build();
         addRenderableWidget(pauseBtn);
 
-        stopBtn = Button.builder(Component.literal("停止"), b -> ClientMusicController.stop())
-                .bounds(cx - 35, this.height - 28, 60, 20).build();
+        stopBtn = Button.builder(Component.literal("⏹ 停止"), b -> ClientMusicController.stop())
+                .bounds(btnStartX + btnWidth + btnGap, footerY, btnWidth, 20).build();
         addRenderableWidget(stopBtn);
 
-        clearSessionBtn = Button.builder(Component.literal("清除登录"), b -> clearSession())
-                .bounds(cx + 35, this.height - 28, 80, 20).build();
+        clearSessionBtn = Button.builder(Component.literal("🚪 登出"), b -> clearSession())
+                .bounds(btnStartX + (btnWidth + btnGap) * 2, footerY, btnWidth, 20).build();
         addRenderableWidget(clearSessionBtn);
 
         // QR tab
-        refreshQrBtn = Button.builder(Component.literal("刷新二维码"), b -> refreshQrAsync())
-                .bounds(cx - 50, this.height - 28, 100, 20).build();
+        refreshQrBtn = Button.builder(Component.literal("🔄 刷新二维码"), b -> refreshQrAsync())
+                .bounds(cx - 60, footerY, 120, 22).build();
         addRenderableWidget(refreshQrBtn);
     }
 
@@ -166,11 +199,11 @@ public final class PortalTeleportMusicScreen extends Screen {
     private void refreshInfo() {
         SessionStore.Session session = SessionStore.loadOrNull();
         if (session == null) {
-            infoText = "未登录（需要二维码登录后才能播放会员/高音质）";
+            infoText = "✨ 欢迎使用！请先扫码登录以播放完整歌曲";
             return;
         }
         boolean has = CookieSanitizer.hasMusicU(session.cookieForApi());
-        infoText = "已保存登录态: " + (has ? "MUSIC_U OK" : "缺少 MUSIC_U");
+        infoText = has ? "✅ 已登录，可以搜索并播放歌曲" : "⚠ 登录信息不完整，请重新登录";
     }
 
     // ---------------- SEARCH ----------------
@@ -185,7 +218,7 @@ public final class PortalTeleportMusicScreen extends Screen {
             var p = SessionStore.debugPath();
             if (Files.exists(p)) Files.delete(p);
             refreshInfo();
-            infoText = "已清除登录态";
+            infoText = "✅ 已成功登出";
         } catch (Exception e) {
             errorText = "清除失败: " + e.getMessage();
         }
@@ -197,24 +230,24 @@ public final class PortalTeleportMusicScreen extends Screen {
 
         SessionStore.Session session = SessionStore.loadOrNull();
         if (session == null) {
-            errorText = "未登录：请点左上角“二维码登录”";
+            errorText = "请先点击左上角「扫码登录」";
             return;
         }
         String cookie = session.cookieForApi();
         if (!CookieSanitizer.hasMusicU(cookie)) {
-            errorText = "cookie 缺少 MUSIC_U：请重新二维码登录";
+            errorText = "登录信息已过期，请重新扫码登录";
             return;
         }
 
         String keywords = keywordBox.getValue().trim();
         if (keywords.isEmpty()) {
-            errorText = "关键词不能为空";
+            errorText = "请输入搜索关键词";
             return;
         }
 
         NcmApiClient client = new NcmApiClient(session.baseUrl() == null || session.baseUrl().isBlank() ? baseUrl : session.baseUrl());
 
-        infoText = "搜索中...";
+        infoText = "🔍 搜索中...";
         CompletableFuture.supplyAsync(() -> {
             try {
                 return client.search(keywords, 20, cookie);
@@ -228,39 +261,73 @@ public final class PortalTeleportMusicScreen extends Screen {
                 return;
             }
             if (songs == null || songs.isEmpty()) {
-                infoText = "无结果";
+                infoText = "😕 没有找到相关歌曲";
                 return;
             }
-            infoText = "点击条目播放";
+            infoText = "🎵 找到 " + songs.size() + " 首歌曲，点击播放";
             renderSongButtons(songs);
         }));
     }
 
     private void renderSongButtons(List<NcmApiClient.SearchSong> songs) {
         clearSongButtons();
+        currentSongs = new ArrayList<>(songs);  // 保存搜索结果
+        scrollOffset = 0;  // 重置滚动位置
+        rebuildSongButtons();
+    }
+
+    private void rebuildSongButtons() {
+        // 清除现有按钮
+        for (Button b : songButtons) removeWidget(b);
+        songButtons.clear();
+
+        if (currentSongs.isEmpty()) return;
 
         int cx = this.width / 2;
-        int x = cx - 160;
-        int y = 94;
-        int w = 320;
+        int listWidth = Math.min(360, this.width - 40);
+        int x = cx - listWidth / 2;
+        int y = HEADER_HEIGHT + 38;  // 搜索栏下方，留出合适间距
         int h = 20;
         int gap = 2;
 
-        for (int i = 0; i < songs.size(); i++) {
-            var s = songs.get(i);
-            String label = s.name() + (s.artist().isBlank() ? "" : " - " + s.artist());
+        // 计算可用高度，预留底部按钮空间
+        int availableHeight = this.height - FOOTER_HEIGHT - y - 5;
+        int maxVisible = availableHeight / (h + gap);
 
-            if (label.length() > 60) label = label.substring(0, 60) + "...";
-            int yy = y + i * (h + gap);
+        // 限制滚动范围
+        int maxScroll = Math.max(0, currentSongs.size() - maxVisible);
+        if (scrollOffset > maxScroll) scrollOffset = maxScroll;
+        if (scrollOffset < 0) scrollOffset = 0;
 
+        int endIndex = Math.min(scrollOffset + maxVisible, currentSongs.size());
+
+        for (int i = scrollOffset; i < endIndex; i++) {
+            var s = currentSongs.get(i);
+            String artist = s.artist().isBlank() ? "" : " - " + s.artist();
+            String label = "♪ " + s.name() + artist;
+
+            // 根据列表宽度截断
+            int maxLen = listWidth / 6;
+            if (label.length() > maxLen) label = label.substring(0, maxLen) + "...";
+
+            int yy = y + (i - scrollOffset) * (h + gap);
+
+            final String songName = s.name();
             Button btn = Button.builder(Component.literal(label), b -> {
                         ClientMusicController.playSongId(s.id());
-                        infoText = "请求播放: " + s.name();
+                        infoText = "🎵 正在播放: " + songName;
                     })
-                    .bounds(x, yy, w, h)
+                    .bounds(x, yy, listWidth, h)
                     .build();
             songButtons.add(btn);
             addRenderableWidget(btn);
+        }
+
+        // 更新提示信息
+        if (currentSongs.size() > maxVisible) {
+            infoText = "🎵 找到 " + currentSongs.size() + " 首歌曲 (显示 " + (scrollOffset + 1) + "-" + endIndex + "，滚轮翻页)";
+        } else {
+            infoText = "🎵 找到 " + currentSongs.size() + " 首歌曲，点击播放";
         }
 
         // ensure visibility matches current tab
@@ -403,6 +470,32 @@ public final class PortalTeleportMusicScreen extends Screen {
     }
 
     @Override
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+        if (tab == Tab.SEARCH && !currentSongs.isEmpty()) {
+            // scrollY > 0 表示向上滚动，< 0 表示向下滚动
+            int scrollAmount = (int) -scrollY;
+            int newOffset = scrollOffset + scrollAmount;
+
+            // 计算最大可滚动范围
+            int y = HEADER_HEIGHT + 38;
+            int h = 20;
+            int gap = 2;
+            int availableHeight = this.height - FOOTER_HEIGHT - y - 5;
+            int maxVisible = availableHeight / (h + gap);
+            int maxScroll = Math.max(0, currentSongs.size() - maxVisible);
+
+            newOffset = Math.max(0, Math.min(maxScroll, newOffset));
+
+            if (newOffset != scrollOffset) {
+                scrollOffset = newOffset;
+                rebuildSongButtons();
+                return true;
+            }
+        }
+        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+    }
+
+    @Override
     public boolean isPauseScreen() {
         return false;
     }
@@ -419,14 +512,38 @@ public final class PortalTeleportMusicScreen extends Screen {
 
     @Override
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        int cx = this.width / 2;
-        g.drawCenteredString(this.font, this.title, cx, 10, 0xFFFFFF);
+        // 绘制半透明深色背景
+        g.fill(0, 0, this.width, this.height, COLOR_BG_DARK);
 
-        // info/error line
-        g.drawCenteredString(this.font, infoText, cx, 26, 0xAAAAAA);
-        if (!errorText.isBlank()) {
-            g.drawCenteredString(this.font, errorText, cx, 36, 0xFF5555);
+        int cx = this.width / 2;
+
+        // 标题区域背景
+        g.fill(0, 0, this.width, HEADER_HEIGHT, COLOR_BG_PANEL);
+        // 标题底部装饰线
+        g.fill(0, HEADER_HEIGHT - 2, this.width, HEADER_HEIGHT, COLOR_ACCENT);
+
+        // 标题文字
+        g.drawCenteredString(this.font, this.title, cx, 6, COLOR_TEXT_PRIMARY);
+
+        // info 文字 - 根据内容选择颜色
+        int infoColor = COLOR_TEXT_SECONDARY;
+        if (infoText.contains("✅") || infoText.contains("成功")) {
+            infoColor = COLOR_TEXT_SUCCESS;
+        } else if (infoText.contains("🔍") || infoText.contains("🎵")) {
+            infoColor = COLOR_ACCENT_LIGHT;
         }
+        g.drawCenteredString(this.font, infoText, cx, 22, infoColor);
+
+        // error 文字
+        if (!errorText.isBlank()) {
+            g.drawCenteredString(this.font, "❌ " + errorText, cx, 36, COLOR_TEXT_ERROR);
+        }
+
+        // 底部区域背景
+        int footerTop = this.height - FOOTER_HEIGHT;
+        g.fill(0, footerTop, this.width, this.height, COLOR_BG_PANEL);
+        // 底部顶部装饰线
+        g.fill(0, footerTop, this.width, footerTop + 2, COLOR_BORDER);
 
         if (tab == Tab.QR_LOGIN) {
             drawQrPanel(g);
@@ -439,23 +556,29 @@ public final class PortalTeleportMusicScreen extends Screen {
         int cx = this.width / 2;
 
         int refreshY = (refreshQrBtn != null ? refreshQrBtn.getY() : (this.height - 28));
-        int bottomLimit = refreshY - 10;
+        // 状态文字在刷新按钮上方，留出足够空间
+        int statusTextY = refreshY - 18;
+        int bottomLimit = statusTextY - 8;
 
-        int topMin = 52;
-        int maxBoxSizeByHeight = Math.max(140, bottomLimit - topMin);
-        int preferred = 260;
+        int topMin = 56;
+        int maxBoxSizeByHeight = Math.max(120, bottomLimit - topMin);
+        int preferred = 180;
         int boxSize = Math.min(preferred, maxBoxSizeByHeight);
 
         int boxX = cx - boxSize / 2;
-        int top = bottomLimit - boxSize;
+        int top = topMin + (bottomLimit - topMin - boxSize) / 2;
         if (top < topMin) top = topMin;
 
-        int padding = 1;                 // small padding for clean look
+        int padding = 2;
         int inner = boxSize - padding * 2;
 
-        // light gray border + white panel (best for scanning)
-        g.fill(boxX - 2, top - 2, boxX + boxSize + 2, top + boxSize + 2,
-                FastColor.ARGB32.color(255, 220, 220, 220));
+        // 外框 - 红色主题
+        int borderSize = 3;
+        g.fill(boxX - borderSize, top - borderSize,
+               boxX + boxSize + borderSize, top + boxSize + borderSize,
+               COLOR_ACCENT);
+
+        // 白色面板 (best for scanning)
         g.fill(boxX, top, boxX + boxSize, top + boxSize,
                 FastColor.ARGB32.color(255, 255, 255, 255));
 
@@ -470,21 +593,33 @@ public final class PortalTeleportMusicScreen extends Screen {
             int dx = boxX + padding + (inner - drawW) / 2;
             int dy = top + padding + (inner - drawH) / 2;
 
-
             g.blit(qrTextureLocation,
-                    dx, dy,              // screen position
-                    drawW, drawH,        // draw size on screen
-                    0, 0,                // UV offset in texture
-                    qrW, qrH,            // UV region size (full texture)
-                    qrW, qrH);           // texture dimensions
+                    dx, dy,
+                    drawW, drawH,
+                    0, 0,
+                    qrW, qrH,
+                    qrW, qrH);
 
             RenderSystem.enableBlend();
         } else {
-            g.drawCenteredString(this.font, "加载中...", cx, top + boxSize / 2 - 4, 0xAAAAAA);
+            g.drawCenteredString(this.font, "⏳ 加载中...", cx, top + boxSize / 2 - 4, 0x888888);
         }
 
-        g.drawCenteredString(this.font,
-                qrStatus + (lastCode == -1 ? "" : (" (code=" + lastCode + ")")),
-                cx, bottomLimit + 2, 0xFFFFFF);
+        // 状态文字 - 在刷新按钮上方
+        int statusColor = COLOR_TEXT_SECONDARY;
+        String statusIcon = "📱 ";
+        if (qrStatus.contains("成功")) {
+            statusColor = COLOR_TEXT_SUCCESS;
+            statusIcon = "✅ ";
+        } else if (qrStatus.contains("失败") || qrStatus.contains("过期")) {
+            statusColor = COLOR_TEXT_ERROR;
+            statusIcon = "❌ ";
+        } else if (qrStatus.contains("扫码") || qrStatus.contains("确认")) {
+            statusColor = COLOR_ACCENT_LIGHT;
+            statusIcon = "📲 ";
+        }
+
+        String statusText = statusIcon + qrStatus;
+        g.drawCenteredString(this.font, statusText, cx, statusTextY, statusColor);
     }
 }

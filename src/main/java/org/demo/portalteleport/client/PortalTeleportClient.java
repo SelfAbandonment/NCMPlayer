@@ -10,11 +10,10 @@ import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import org.demo.portalteleport.client.audio.ClientMusicController;
 import org.demo.portalteleport.client.input.PortalTeleportKeyMappings;
 import org.demo.portalteleport.client.screen.PortalTeleportMusicScreen;
+import org.demo.portalteleport.config.ModConfig;
 
 @EventBusSubscriber(modid = "portalteleport", value = Dist.CLIENT)
 public final class PortalTeleportClient {
-
-    private static final String NCM_BASE_URL = "http://101.35.114.214:3000";
 
     private PortalTeleportClient() {}
 
@@ -32,7 +31,8 @@ public final class PortalTeleportClient {
         ClientMusicController.tick();
 
         if (PortalTeleportKeyMappings.OPEN_MUSIC_UI.consumeClick()) {
-            mc.setScreen(new PortalTeleportMusicScreen(NCM_BASE_URL));
+            String apiUrl = ModConfig.COMMON.musicApiUrl.get();
+            mc.setScreen(new PortalTeleportMusicScreen(apiUrl));
         }
     }
 }

@@ -15,9 +15,11 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FastColor;
 
 import org.demo.portalteleport.client.audio.ClientMusicController;
+import org.demo.portalteleport.config.ModConfig;
 import org.demo.portalteleport.ncm.CookieSanitizer;
 import org.demo.portalteleport.ncm.NcmApiClient;
 import org.demo.portalteleport.ncm.SessionStore;
+import org.demo.portalteleport.util.I18n;
 
 import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
@@ -57,7 +59,7 @@ public final class PortalTeleportMusicScreen extends Screen {
 
     private volatile String unikey;
     private volatile int lastCode = -1;
-    private volatile String qrStatus = "未开始";
+    private volatile String qrStatus = "";
     private ScheduledFuture<?> pollFuture;
 
     @Nullable private DynamicTexture qrTexture;
@@ -81,8 +83,9 @@ public final class PortalTeleportMusicScreen extends Screen {
     private static final int SIDE_MARGIN = 20;
 
     public PortalTeleportMusicScreen(String baseUrl) {
-        super(Component.literal("♪ 网易云音乐"));
+        super(I18n.translate(I18n.MUSIC_TITLE));
         this.baseUrl = baseUrl;
+        this.qrStatus = I18n.translateString(I18n.MUSIC_QR_NOT_STARTED);
     }
 
     @Override
@@ -113,11 +116,11 @@ public final class PortalTeleportMusicScreen extends Screen {
         int footerY = this.height - FOOTER_HEIGHT + 10;
 
         // Tab buttons - styled
-        toQrBtn = Button.builder(Component.literal("🔐 扫码登录"), b -> setTab(Tab.QR_LOGIN))
+        toQrBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_QR_LOGIN), b -> setTab(Tab.QR_LOGIN))
                 .bounds(SIDE_MARGIN, 15, 100, 20).build();
         addRenderableWidget(toQrBtn);
 
-        backToSearchBtn = Button.builder(Component.literal("← 返回搜索"), b -> setTab(Tab.SEARCH))
+        backToSearchBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_BACK_SEARCH), b -> setTab(Tab.SEARCH))
                 .bounds(SIDE_MARGIN, 15, 100, 20).build();
         addRenderableWidget(backToSearchBtn);
 
@@ -127,13 +130,13 @@ public final class PortalTeleportMusicScreen extends Screen {
         int totalSearchWidth = searchBarWidth + 5 + searchBtnWidth;
         int searchStartX = cx - totalSearchWidth / 2;
 
-        keywordBox = new EditBox(this.font, searchStartX, contentTop, searchBarWidth, 22, Component.literal("搜索歌曲..."));
-        keywordBox.setHint(Component.literal("输入歌曲、歌手或专辑名..."));
+        keywordBox = new EditBox(this.font, searchStartX, contentTop, searchBarWidth, 22, Component.literal(""));
+        keywordBox.setHint(I18n.translate(I18n.MUSIC_HINT_SEARCH));
         keywordBox.setValue("");
         keywordBox.setMaxLength(100);
         addRenderableWidget(keywordBox);
 
-        searchBtn = Button.builder(Component.literal("🔍 搜索"), b -> doSearchAsync())
+        searchBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_SEARCH), b -> doSearchAsync())
                 .bounds(searchStartX + searchBarWidth + 5, contentTop, searchBtnWidth, 22).build();
         addRenderableWidget(searchBtn);
 
@@ -143,20 +146,20 @@ public final class PortalTeleportMusicScreen extends Screen {
         int totalBtnWidth = btnWidth * 3 + btnGap * 2;
         int btnStartX = cx - totalBtnWidth / 2;
 
-        pauseBtn = Button.builder(Component.literal("⏯ 暂停"), b -> ClientMusicController.togglePause())
+        pauseBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_PAUSE), b -> ClientMusicController.togglePause())
                 .bounds(btnStartX, footerY, btnWidth, 20).build();
         addRenderableWidget(pauseBtn);
 
-        stopBtn = Button.builder(Component.literal("⏹ 停止"), b -> ClientMusicController.stop())
+        stopBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_STOP), b -> ClientMusicController.stop())
                 .bounds(btnStartX + btnWidth + btnGap, footerY, btnWidth, 20).build();
         addRenderableWidget(stopBtn);
 
-        clearSessionBtn = Button.builder(Component.literal("🚪 登出"), b -> clearSession())
+        clearSessionBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_LOGOUT), b -> clearSession())
                 .bounds(btnStartX + (btnWidth + btnGap) * 2, footerY, btnWidth, 20).build();
         addRenderableWidget(clearSessionBtn);
 
         // QR tab
-        refreshQrBtn = Button.builder(Component.literal("🔄 刷新二维码"), b -> refreshQrAsync())
+        refreshQrBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_REFRESH_QR), b -> refreshQrAsync())
                 .bounds(cx - 60, footerY, 120, 22).build();
         addRenderableWidget(refreshQrBtn);
     }
@@ -199,11 +202,11 @@ public final class PortalTeleportMusicScreen extends Screen {
     private void refreshInfo() {
         SessionStore.Session session = SessionStore.loadOrNull();
         if (session == null) {
-            infoText = "✨ 欢迎使用！请先扫码登录以播放完整歌曲";
+            infoText = I18n.translateString(I18n.MUSIC_INFO_WELCOME);
             return;
         }
         boolean has = CookieSanitizer.hasMusicU(session.cookieForApi());
-        infoText = has ? "✅ 已登录，可以搜索并播放歌曲" : "⚠ 登录信息不完整，请重新登录";
+        infoText = has ? I18n.translateString(I18n.MUSIC_INFO_LOGGED_IN) : I18n.translateString(I18n.MUSIC_INFO_LOGIN_INCOMPLETE);
     }
 
     // ---------------- SEARCH ----------------
@@ -218,9 +221,9 @@ public final class PortalTeleportMusicScreen extends Screen {
             var p = SessionStore.debugPath();
             if (Files.exists(p)) Files.delete(p);
             refreshInfo();
-            infoText = "✅ 已成功登出";
+            infoText = I18n.translateString(I18n.MUSIC_INFO_LOGGED_OUT);
         } catch (Exception e) {
-            errorText = "清除失败: " + e.getMessage();
+            errorText = I18n.translateString(I18n.MUSIC_ERROR_CLEAR_FAILED, e.getMessage());
         }
     }
 
@@ -230,41 +233,42 @@ public final class PortalTeleportMusicScreen extends Screen {
 
         SessionStore.Session session = SessionStore.loadOrNull();
         if (session == null) {
-            errorText = "请先点击左上角「扫码登录」";
+            errorText = I18n.translateString(I18n.MUSIC_ERROR_NOT_LOGGED_IN);
             return;
         }
         String cookie = session.cookieForApi();
         if (!CookieSanitizer.hasMusicU(cookie)) {
-            errorText = "登录信息已过期，请重新扫码登录";
+            errorText = I18n.translateString(I18n.MUSIC_ERROR_LOGIN_EXPIRED);
             return;
         }
 
         String keywords = keywordBox.getValue().trim();
         if (keywords.isEmpty()) {
-            errorText = "请输入搜索关键词";
+            errorText = I18n.translateString(I18n.MUSIC_ERROR_EMPTY_KEYWORD);
             return;
         }
 
         NcmApiClient client = new NcmApiClient(session.baseUrl() == null || session.baseUrl().isBlank() ? baseUrl : session.baseUrl());
 
-        infoText = "🔍 搜索中...";
+        int searchLimit = ModConfig.COMMON.musicSearchLimit.get();
+        infoText = I18n.translateString(I18n.MUSIC_INFO_SEARCHING);
         CompletableFuture.supplyAsync(() -> {
             try {
-                return client.search(keywords, 20, cookie);
+                return client.search(keywords, searchLimit, cookie);
             } catch (Exception e) {
                 throw new CompletionException(e);
             }
         }, exec).whenComplete((songs, err) -> Minecraft.getInstance().execute(() -> {
             if (err != null) {
                 errorText = (err.getCause() != null ? err.getCause().getMessage() : err.getMessage());
-                infoText = "搜索失败";
+                infoText = I18n.translateString(I18n.MUSIC_INFO_SEARCH_FAILED);
                 return;
             }
             if (songs == null || songs.isEmpty()) {
-                infoText = "😕 没有找到相关歌曲";
+                infoText = I18n.translateString(I18n.MUSIC_INFO_NO_RESULTS);
                 return;
             }
-            infoText = "🎵 找到 " + songs.size() + " 首歌曲，点击播放";
+            infoText = I18n.translateString(I18n.MUSIC_INFO_FOUND_SONGS, songs.size());
             renderSongButtons(songs);
         }));
     }
@@ -315,7 +319,7 @@ public final class PortalTeleportMusicScreen extends Screen {
             final String songName = s.name();
             Button btn = Button.builder(Component.literal(label), b -> {
                         ClientMusicController.playSongId(s.id());
-                        infoText = "🎵 正在播放: " + songName;
+                        infoText = I18n.translateString(I18n.MUSIC_INFO_NOW_PLAYING, songName);
                     })
                     .bounds(x, yy, listWidth, h)
                     .build();
@@ -325,9 +329,9 @@ public final class PortalTeleportMusicScreen extends Screen {
 
         // 更新提示信息
         if (currentSongs.size() > maxVisible) {
-            infoText = "🎵 找到 " + currentSongs.size() + " 首歌曲 (显示 " + (scrollOffset + 1) + "-" + endIndex + "，滚轮翻页)";
+            infoText = I18n.translateString(I18n.MUSIC_INFO_FOUND_SONGS_SCROLL, currentSongs.size(), scrollOffset + 1, endIndex);
         } else {
-            infoText = "🎵 找到 " + currentSongs.size() + " 首歌曲，点击播放";
+            infoText = I18n.translateString(I18n.MUSIC_INFO_FOUND_SONGS, currentSongs.size());
         }
 
         // ensure visibility matches current tab
@@ -338,7 +342,7 @@ public final class PortalTeleportMusicScreen extends Screen {
 
     private void refreshQrAsync() {
         stopPolling();
-        qrStatus = "正在生成二维码...";
+        qrStatus = I18n.translateString(I18n.MUSIC_QR_GENERATING);
         errorText = "";
         lastCode = -1;
 
@@ -359,10 +363,10 @@ public final class PortalTeleportMusicScreen extends Screen {
                 Minecraft.getInstance().execute(() -> {
                     try {
                         loadQrTexture(qrimg);
-                        qrStatus = "请扫码并在手机确认";
+                        qrStatus = I18n.translateString(I18n.MUSIC_QR_SCAN_CONFIRM);
                     } catch (Exception e) {
-                        errorText = "二维码渲染失败: " + e.getMessage();
-                        qrStatus = "渲染失败";
+                        errorText = I18n.translateString(I18n.MUSIC_QR_RENDER_FAILED, e.getMessage());
+                        qrStatus = I18n.translateString(I18n.MUSIC_QR_RENDER_FAILED_SHORT);
                     }
                 });
 
@@ -371,7 +375,7 @@ public final class PortalTeleportMusicScreen extends Screen {
 
             } catch (Exception e) {
                 errorText = e.getClass().getSimpleName() + ": " + e.getMessage();
-                qrStatus = "生成失败";
+                qrStatus = I18n.translateString(I18n.MUSIC_QR_GENERATE_FAILED);
             }
         }, exec);
     }
@@ -392,17 +396,17 @@ public final class PortalTeleportMusicScreen extends Screen {
                         : "";
 
                 switch (code) {
-                    case 801 -> qrStatus = "等待扫码...";
-                    case 802 -> qrStatus = "已扫码，手机确认中...";
+                    case 801 -> qrStatus = I18n.translateString(I18n.MUSIC_QR_WAITING_SCAN);
+                    case 802 -> qrStatus = I18n.translateString(I18n.MUSIC_QR_SCANNED_CONFIRM);
                     case 800 -> {
-                        qrStatus = "二维码过期，正在刷新...";
+                        qrStatus = I18n.translateString(I18n.MUSIC_QR_EXPIRED_REFRESH);
                         Minecraft.getInstance().execute(this::refreshQrAsync);
                     }
                     case 803 -> {
-                        qrStatus = "登录成功，保存中...";
+                        qrStatus = I18n.translateString(I18n.MUSIC_QR_LOGIN_SUCCESS_SAVING);
                         onLoginSuccess(cookieRaw);
                     }
-                    default -> qrStatus = "状态: " + code;
+                    default -> qrStatus = I18n.translateString(I18n.MUSIC_QR_STATUS, code);
                 }
             } catch (Exception e) {
                 errorText = e.getClass().getSimpleName() + ": " + e.getMessage();
@@ -419,10 +423,10 @@ public final class PortalTeleportMusicScreen extends Screen {
         try {
             SessionStore.save(new SessionStore.Session(baseUrl, cookieForApi, System.currentTimeMillis()));
             refreshInfo();
-            qrStatus = ok ? "已保存 (MUSIC_U OK)" : "已保存，但缺少 MUSIC_U";
+            qrStatus = ok ? I18n.translateString(I18n.MUSIC_QR_SAVED_OK) : I18n.translateString(I18n.MUSIC_QR_SAVED_MISSING);
         } catch (Exception e) {
-            errorText = "保存失败: " + e.getMessage();
-            qrStatus = "保存失败";
+            errorText = I18n.translateString(I18n.MUSIC_QR_SAVE_FAILED, e.getMessage());
+            qrStatus = I18n.translateString(I18n.MUSIC_QR_SAVE_FAILED_SHORT);
             return;
         }
 
@@ -525,11 +529,11 @@ public final class PortalTeleportMusicScreen extends Screen {
         // 标题文字
         g.drawCenteredString(this.font, this.title, cx, 6, COLOR_TEXT_PRIMARY);
 
-        // info 文字 - 根据内容选择颜色
+        // info 文字 - 根据内容的 emoji 选择颜色
         int infoColor = COLOR_TEXT_SECONDARY;
-        if (infoText.contains("✅") || infoText.contains("成功")) {
+        if (infoText.contains("✅")) {
             infoColor = COLOR_TEXT_SUCCESS;
-        } else if (infoText.contains("🔍") || infoText.contains("🎵")) {
+        } else if (infoText.contains("🔍") || infoText.contains("🎵") || infoText.contains("✨")) {
             infoColor = COLOR_ACCENT_LIGHT;
         }
         g.drawCenteredString(this.font, infoText, cx, 22, infoColor);
@@ -602,19 +606,21 @@ public final class PortalTeleportMusicScreen extends Screen {
 
             RenderSystem.enableBlend();
         } else {
-            g.drawCenteredString(this.font, "⏳ 加载中...", cx, top + boxSize / 2 - 4, 0x888888);
+            g.drawCenteredString(this.font, I18n.translateString(I18n.MUSIC_QR_LOADING), cx, top + boxSize / 2 - 4, 0x888888);
         }
 
         // 状态文字 - 在刷新按钮上方
         int statusColor = COLOR_TEXT_SECONDARY;
         String statusIcon = "📱 ";
-        if (qrStatus.contains("成功")) {
+
+        // 根据状态码判断颜色
+        if (lastCode == 803) {
             statusColor = COLOR_TEXT_SUCCESS;
             statusIcon = "✅ ";
-        } else if (qrStatus.contains("失败") || qrStatus.contains("过期")) {
+        } else if (lastCode == 800 || qrStatus.contains("failed") || qrStatus.contains("失败") || qrStatus.contains("expired") || qrStatus.contains("过期")) {
             statusColor = COLOR_TEXT_ERROR;
             statusIcon = "❌ ";
-        } else if (qrStatus.contains("扫码") || qrStatus.contains("确认")) {
+        } else if (lastCode == 801 || lastCode == 802) {
             statusColor = COLOR_ACCENT_LIGHT;
             statusIcon = "📲 ";
         }

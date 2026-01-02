@@ -1,12 +1,12 @@
 package org.demo.portalteleport.client.audio;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.network.chat.Component;
-import org.demo.portalteleport.client.audio.StreamingMp3Player;
+import org.demo.portalteleport.config.ModConfig;
 import org.demo.portalteleport.ncm.CookieSanitizer;
 import org.demo.portalteleport.ncm.NcmApiClient;
 import org.demo.portalteleport.ncm.SessionStore;
 import org.demo.portalteleport.ncm.SongUrlProvider;
+import org.demo.portalteleport.util.I18n;
 
 import java.net.URI;
 
@@ -14,16 +14,26 @@ public final class ClientMusicController {
 
     private static final StreamingMp3Player PLAYER = new StreamingMp3Player();
 
-    // your API
-    private static final String DEFAULT_BASE_URL = "http://101.35.114.214:3000";
-
     private static SongUrlProvider provider;
+    private static boolean volumeInitialized = false;
 
     private ClientMusicController() {}
 
     public static StreamingMp3Player player() { return PLAYER; }
 
-    public static void tick() { PLAYER.tick(); }
+    public static void tick() {
+        // 首次初始化音量
+        if (!volumeInitialized) {
+            try {
+                float defaultVol = ModConfig.COMMON.musicDefaultVolume.get().floatValue();
+                PLAYER.setVolume(defaultVol);
+                volumeInitialized = true;
+            } catch (Exception ignored) {
+                // 配置可能还未加载
+            }
+        }
+        PLAYER.tick();
+    }
 
     public static void stop() { PLAYER.stop(); }
 
@@ -31,6 +41,14 @@ public final class ClientMusicController {
         var st = PLAYER.getState();
         if (st == StreamingMp3Player.State.PAUSED) PLAYER.resume();
         else if (st == StreamingMp3Player.State.PLAYING || st == StreamingMp3Player.State.BUFFERING) PLAYER.pause();
+    }
+
+    public static float getVolume() {
+        return PLAYER.getVolume();
+    }
+
+    public static void setVolume(float volume) {
+        PLAYER.setVolume(volume);
     }
 
     /**
@@ -43,9 +61,9 @@ public final class ClientMusicController {
             String url = provider.getPlayableMp3Url(songId);
             PLAYER.play(URI.create(url));
 
-            msg("Playing songId=" + songId);
+            msg(I18n.translateString(I18n.MSG_MUSIC_PLAYING, songId));
         } catch (Exception e) {
-            msg("Play failed: " + e.getMessage());
+            msg(I18n.translateString(I18n.MSG_MUSIC_PLAY_FAILED, e.getMessage()));
             e.printStackTrace();
         }
     }
@@ -63,7 +81,10 @@ public final class ClientMusicController {
             throw new IllegalStateException("Session cookie missing MUSIC_U. QR login not completed or cookie sanitize failed.");
         }
 
-        String baseUrl = (session.baseUrl() == null || session.baseUrl().isBlank()) ? DEFAULT_BASE_URL : session.baseUrl();
+        String baseUrl = session.baseUrl();
+        if (baseUrl == null || baseUrl.isBlank()) {
+            baseUrl = ModConfig.COMMON.musicApiUrl.get();
+        }
         NcmApiClient api = new NcmApiClient(baseUrl);
         provider = new SongUrlProvider(api, cookieForApi);
     }
@@ -71,7 +92,7 @@ public final class ClientMusicController {
     private static void msg(String s) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
-            mc.player.displayClientMessage(Component.literal("[PortalTeleport] " + s), false);
+            mc.player.displayClientMessage(net.minecraft.network.chat.Component.literal("[PortalTeleport] " + s), false);
         }
     }
 }

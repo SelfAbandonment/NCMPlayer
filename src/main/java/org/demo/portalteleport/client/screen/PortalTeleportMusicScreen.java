@@ -369,11 +369,6 @@ public final class PortalTeleportMusicScreen extends Screen {
             pollFuture = null;
         }
     }
-
-    // Padding added to the texture to prevent edge sampling artifacts.
-    // We keep it small and DO NOT cut into the original QR content.
-    private static final int QR_PAD = 1;
-
     private void loadQrTexture(String dataUrl) throws Exception {
         deleteQrTexture();
 
@@ -384,27 +379,9 @@ public final class PortalTeleportMusicScreen extends Screen {
         try (ByteArrayInputStream in = new ByteArrayInputStream(png)) {
             NativeImage src = NativeImage.read(in);
 
-            int sw = src.getWidth();
-            int sh = src.getHeight();
-
-            // Create a new image with a tiny border. Border pixels repeat edge color, not pure white,
-            // so even if sampling hits it, it won't create a visible "white frame".
-            NativeImage padded = new NativeImage(sw + QR_PAD * 2, sh + QR_PAD * 2, false);
-
-            // Copy edge-extended padding (replicate nearest edge pixels)
-            for (int y = 0; y < padded.getHeight(); y++) {
-                int sy = Math.min(sh - 1, Math.max(0, y - QR_PAD));
-                for (int x = 0; x < padded.getWidth(); x++) {
-                    int sx = Math.min(sw - 1, Math.max(0, x - QR_PAD));
-                    padded.setPixelRGBA(x, y, src.getPixelRGBA(sx, sy));
-                }
-            }
-
-            src.close();
-
-            qrW = padded.getWidth();
-            qrH = padded.getHeight();
-            qrTexture = new DynamicTexture(padded);
+            qrW = src.getWidth();
+            qrH = src.getHeight();
+            qrTexture = new DynamicTexture(src);
         }
 
         TextureManager tm = Minecraft.getInstance().getTextureManager();
@@ -473,7 +450,7 @@ public final class PortalTeleportMusicScreen extends Screen {
         int top = bottomLimit - boxSize;
         if (top < topMin) top = topMin;
 
-        int padding = 8;                 // bigger padding so QR never touches border
+        int padding = 1;                 // small padding for clean look
         int inner = boxSize - padding * 2;
 
         // light gray border + white panel (best for scanning)
@@ -493,8 +470,7 @@ public final class PortalTeleportMusicScreen extends Screen {
             int dx = boxX + padding + (inner - drawW) / 2;
             int dy = top + padding + (inner - drawH) / 2;
 
-            // blit(location, x, y, width, height, uOffset, vOffset, uWidth, vHeight, texW, texH)
-            // Draw the FULL texture (0,0 to qrW,qrH) scaled into (dx,dy to dx+drawW, dy+drawH)
+
             g.blit(qrTextureLocation,
                     dx, dy,              // screen position
                     drawW, drawH,        // draw size on screen

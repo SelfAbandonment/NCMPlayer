@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CopilotDiffPersistence">
+    <option name="pendingDiffs">
+      <map>
+        <entry key="$PROJECT_DIR$/src/main/java/org/demo/portalteleport/event/FallBounceHandler.java">
+          <value>
+            <PendingDiffInfo>
+              <option name="filePath" value="$PROJECT_DIR$/src/main/java/org/demo/portalteleport/event/FallBounceHandler.java" />
+              <option name="updatedContent" value="package org.demo.portalteleport.event;&#10;&#10;import net.minecraft.network.chat.Component;&#10;import net.minecraft.server.level.ServerPlayer;&#10;import net.minecraft.world.effect.MobEffectInstance;&#10;import net.minecraft.world.effect.MobEffects;&#10;import net.neoforged.bus.api.SubscribeEvent;&#10;import net.neoforged.neoforge.event.entity.living.LivingHurtEvent;&#10;&#10;/**&#10; * 弹跳加成：当玩家因摔落受到伤害时，给予 5 秒跳跃提升 I，并显示趣味提示。&#10; */&#10;public class FallBounceHandler {&#10;    @SubscribeEvent&#10;    public void onLivingHurt(LivingHurtEvent event) {&#10;        if (!(event.getEntity() instanceof ServerPlayer player)) return;&#10;        var src = event.getSource();&#10;        if (src.isFall()) {&#10;            player.addEffect(new MobEffectInstance(MobEffects.JUMP, 5 * 20, 0, false, true));&#10;            player.sendSystemMessage(Component.literal(&quot;弹跳的步伐！下次小心脚下~&quot;));&#10;        }&#10;    }&#10;}&#10;" />
+            </PendingDiffInfo>
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+</project>

@@ -288,6 +288,14 @@ public final class StreamingMp3Player implements AutoCloseable {
         stopRequested.set(true);
         if (state.get() != State.ERROR) state.set(State.STOPPING);
 
+        // 先清理 OpenAL 资源，防止残留音频
+        if (source != 0) {
+            cleanupAl();
+        }
+
+        // 清空 PCM 队列
+        pcmQueue.clear();
+
         if (decodeWorker != null) {
             try {
                 decodeWorker.join(1000);
@@ -296,6 +304,10 @@ public final class StreamingMp3Player implements AutoCloseable {
             }
             decodeWorker = null;
         }
+
+        // 重置状态
+        playbackStarted = false;
+        prebuffered = 0;
     }
 
     /**
@@ -657,12 +669,32 @@ public final class StreamingMp3Player implements AutoCloseable {
     private void cleanupAl() {
         try {
             if (source != 0) {
+                // 先停止源
                 AL10.alSourceStop(source);
-                int queued = AL10.alGetSourcei(source, AL10.AL_BUFFERS_QUEUED);
-                while (queued-- > 0) {
-                    AL10.alSourceUnqueueBuffers(source);
+
+                // 等待一小段时间让 OpenAL 处理
+                try { Thread.sleep(10); } catch (InterruptedException ignored) {}
+
+                // 先回收所有已处理的缓冲区
+                int processed = AL10.alGetSourcei(source, AL10.AL_BUFFERS_PROCESSED);
+                for (int i = 0; i < processed; i++) {
+                    try {
+                        AL10.alSourceUnqueueBuffers(source);
+                    } catch (Throwable ignored) {}
                 }
-                AL10.alDeleteSources(source);
+
+                // 再尝试回收剩余的队列缓冲区
+                int queued = AL10.alGetSourcei(source, AL10.AL_BUFFERS_QUEUED);
+                for (int i = 0; i < queued; i++) {
+                    try {
+                        AL10.alSourceUnqueueBuffers(source);
+                    } catch (Throwable ignored) {}
+                }
+
+                // 删除源
+                try {
+                    AL10.alDeleteSources(source);
+                } catch (Throwable ignored) {}
             }
         } catch (Throwable ignored) {
         } finally {

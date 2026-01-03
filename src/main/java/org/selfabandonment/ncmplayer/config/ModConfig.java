@@ -51,8 +51,8 @@ public final class ModConfig {
                     .push("music");
 
             musicApiUrl = builder
-                    .comment("网易云 API 服务器地址")
-                    .define("apiUrl", "http://101.35.114.214:3000");
+                    .comment("网易云 API 服务器地址 (需要自建，参考: https://github.com/NeteaseCloudMusicApiEnhanced)")
+                    .define("apiUrl", "http://localhost:3000");
 
             musicDefaultVolume = builder
                     .comment("默认音量 (0.0 ~ 1.0)")

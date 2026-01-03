@@ -47,6 +47,12 @@
   "gui.ncmplayer.music.list.no_playing": "暂无播放",
 
   "message.ncmplayer.music.playing": "正在播放 songId=%d",
-  "message.ncmplayer.music.play_failed": "播放失败: %s"
+  "message.ncmplayer.music.play_failed": "播放失败: %s",
+
+  "gui.ncmplayer.api.unavailable": "⚠ API 服务器不可用",
+  "gui.ncmplayer.api.error.connect": "无法连接到服务器",
+  "gui.ncmplayer.api.error.unknown_host": "服务器地址无效",
+  "gui.ncmplayer.api.error.timeout": "连接超时",
+  "gui.ncmplayer.api.config_hint": "请配置 config/ncmplayer-common.toml"
 }
 

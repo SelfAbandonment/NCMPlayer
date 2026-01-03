@@ -44,6 +44,11 @@ public final class MusicScreen extends Screen {
     private ScheduledExecutorService exec;
     private String loginStatus = "";
 
+    // API 状态
+    private volatile boolean apiAvailable = true;
+    private volatile String apiError = null;
+    private volatile boolean checkingApi = false;
+
     // 搜索组件
     private EditBox keywordBox;
     private Button searchBtn;
@@ -128,6 +133,22 @@ public final class MusicScreen extends Screen {
         buildWidgets();
         updateLoginStatus();
         setTab(Tab.PLAYER);
+
+        // 检查 API 服务器是否可用
+        checkApiHealth();
+    }
+
+    private void checkApiHealth() {
+        if (checkingApi) return;
+        checkingApi = true;
+
+        CompletableFuture.runAsync(() -> {
+            NcmApiClient client = new NcmApiClient(baseUrl);
+            String error = client.getHealthError();
+            apiAvailable = (error == null);
+            apiError = error;
+            checkingApi = false;
+        }, exec);
     }
 
     @Override
@@ -221,7 +242,7 @@ public final class MusicScreen extends Screen {
         int totalW = btnW * 6 + gap * 6 + sliderW;
         int startX = cx - totalW / 2;
 
-        playlistBtn = Button.builder(Component.literal("📋"), b -> setTab(Tab.PLAYLIST))
+        playlistBtn = Button.builder(Component.literal("♫"), b -> setTab(Tab.PLAYLIST))
                 .bounds(startX, btnY, btnW, btnH).build();
         addRenderableWidget(playlistBtn);
 
@@ -716,9 +737,20 @@ public final class MusicScreen extends Screen {
 
     private void renderPlayerTab(GuiGraphics g, int mouseX, int mouseY) {
         int cx = width / 2;
+        int contentW = Math.min(360, this.width - 30);
+        int contentL = cx - contentW / 2;
 
         // 标题（居中）
         g.drawCenteredString(font, "♪ 网易云音乐", cx, 12, COLOR_TEXT);
+
+        // API 服务器状态警告
+        if (!apiAvailable && apiError != null) {
+            int warnY = HEADER_HEIGHT + 35;
+            g.fill(contentL, warnY, contentL + contentW, warnY + 35, 0xCC442222);
+            g.drawCenteredString(font, "⚠ API 服务器不可用", cx, warnY + 5, 0xFFFF6666);
+            String errMsg = apiError.length() > 35 ? apiError.substring(0, 35) + "..." : apiError;
+            g.drawCenteredString(font, errMsg, cx, warnY + 18, COLOR_TEXT_DIM);
+        }
 
         // 底部面板
         int footerTop = height - FOOTER_HEIGHT;
@@ -730,6 +762,9 @@ public final class MusicScreen extends Screen {
         // 音量条
         drawVolumeSlider(g);
 
+        // 绘制模式按钮的激活指示器
+        drawModeIndicators(g);
+
         // 更新播放按钮图标
         var state = MusicController.getState();
         String icon = (state == StreamingMp3Player.State.PLAYING || state == StreamingMp3Player.State.BUFFERING) ? "⏸" : "▶";
@@ -739,12 +774,32 @@ public final class MusicScreen extends Screen {
         updateModeButtons();
     }
 
+    private void drawModeIndicators(GuiGraphics g) {
+        // 随机按钮激活指示器（按钮下方的小点）
+        if (Playlist.isShuffle()) {
+            int dotX = shuffleBtn.getX() + shuffleBtn.getWidth() / 2 - 2;
+            int dotY = shuffleBtn.getY() + shuffleBtn.getHeight() + 2;
+            g.fill(dotX, dotY, dotX + 4, dotY + 3, COLOR_ACCENT);
+        }
+
+        // 循环按钮激活指示器
+        if (Playlist.getRepeatMode() != Playlist.RepeatMode.NONE) {
+            int dotX = repeatBtn.getX() + repeatBtn.getWidth() / 2 - 2;
+            int dotY = repeatBtn.getY() + repeatBtn.getHeight() + 2;
+            int color = Playlist.getRepeatMode() == Playlist.RepeatMode.ONE ? 0xFF00FFFF : COLOR_ACCENT;
+            g.fill(dotX, dotY, dotX + 4, dotY + 3, color);
+        }
+    }
+
     private void updateModeButtons() {
-        // 循环模式反馈
+        // 随机播放图标保持不变，状态通过下方指示器显示
+        shuffleBtn.setMessage(Component.literal("🔀"));
+
+        // 循环模式使用不同图标
         String repeatIcon = switch (Playlist.getRepeatMode()) {
-            case NONE -> "🔁";
-            case ALL -> "🔂";  // 列表循环用不同图标
-            case ONE -> "🔂";  // 单曲循环
+            case NONE -> "🔁";      // 不循环
+            case ALL -> "🔁";       // 列表循环（通过指示器显示）
+            case ONE -> "🔂";       // 单曲循环
         };
         repeatBtn.setMessage(Component.literal(repeatIcon));
     }

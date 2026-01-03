@@ -70,9 +70,9 @@ public final class Playlist {
                 currentIndex = songs.size() - 1;
             }
 
-            // 如果移除的是当前播放的歌曲，停止播放
+            // 如果移除的是当前播放的歌曲，手动停止播放（不触发自动下一首）
             if (wasCurrentSong) {
-                MusicController.stop();
+                MusicController.stopManually();
                 if (songs.isEmpty()) {
                     currentIndex = -1;
                 }

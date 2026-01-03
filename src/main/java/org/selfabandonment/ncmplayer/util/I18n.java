@@ -85,5 +85,11 @@ public final class I18n {
 
     public static final String MSG_MUSIC_PLAYING = "message.ncmplayer.music.playing";
     public static final String MSG_MUSIC_PLAY_FAILED = "message.ncmplayer.music.play_failed";
+
+    // API 状态
+    public static final String API_UNAVAILABLE = "gui.ncmplayer.api.unavailable";
+    public static final String API_ERROR_CONNECT = "gui.ncmplayer.api.error.connect";
+    public static final String API_ERROR_UNKNOWN_HOST = "gui.ncmplayer.api.error.unknown_host";
+    public static final String API_ERROR_TIMEOUT = "gui.ncmplayer.api.error.timeout";
 }
 

@@ -43,6 +43,12 @@
   "gui.ncmplayer.music.qr.loading": "⏳ Loading...",
 
   "message.ncmplayer.music.playing": "Playing songId=%d",
-  "message.ncmplayer.music.play_failed": "Play failed: %s"
+  "message.ncmplayer.music.play_failed": "Play failed: %s",
+
+  "gui.ncmplayer.api.unavailable": "⚠ API Server Unavailable",
+  "gui.ncmplayer.api.error.connect": "Cannot connect to server",
+  "gui.ncmplayer.api.error.unknown_host": "Invalid server address",
+  "gui.ncmplayer.api.error.timeout": "Connection timeout",
+  "gui.ncmplayer.api.config_hint": "Please configure config/ncmplayer-common.toml"
 }
 

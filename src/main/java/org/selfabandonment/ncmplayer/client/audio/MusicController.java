@@ -27,6 +27,7 @@ public final class MusicController {
     private static SongUrlProvider provider;
     private static boolean volumeInitialized = false;
     private static boolean wasPlaying = false;
+    private static boolean manualStop = false;  // 标记是否是手动停止（不触发自动下一首）
 
     private MusicController() {
     }
@@ -61,15 +62,23 @@ public final class MusicController {
         // 是否已停止（播放结束）- 同时检查 STOPPED 和 IDLE
         boolean isStopped = (state == StreamingMp3Player.State.STOPPED || state == StreamingMp3Player.State.IDLE);
 
-        // 先检查是否需要自动下一首（之前在播放，现在停止了）
+        // 先检查是否需要自动下一首（之前在播放，现在停止了，且不是手动停止）
         if (wasPlaying && isStopped) {
-            LOGGER.info("Song finished, wasPlaying={}, state={}, playlist size={}", wasPlaying, state, Playlist.size());
             wasPlaying = false;
-            autoPlayNext();
+
+            // 如果是手动停止，不自动下一首
+            if (manualStop) {
+                manualStop = false;
+                LOGGER.info("Manual stop, not auto-playing next");
+            } else {
+                LOGGER.info("Song finished, state={}, playlist size={}", state, Playlist.size());
+                autoPlayNext();
+            }
         }
         // 再更新播放状态
         else if (isPlaying) {
             wasPlaying = true;
+            manualStop = false;  // 开始播放时重置标志
         }
         // 暂停状态不改变 wasPlaying
     }
@@ -125,9 +134,17 @@ public final class MusicController {
     }
 
     /**
-     * 停止播放
+     * 停止播放（自然停止，可能触发自动下一首）
      */
     public static void stop() {
+        PLAYER.stop();
+    }
+
+    /**
+     * 手动停止播放（不触发自动下一首）
+     */
+    public static void stopManually() {
+        manualStop = true;
         PLAYER.stop();
     }
 

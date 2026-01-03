@@ -34,6 +34,53 @@ public final class NcmApiClient {
 
     public String baseUrl() { return baseUrl; }
 
+    /**
+     * 检查 API 服务器是否可用
+     * @return true 如果服务器可用
+     */
+    public boolean checkHealth() {
+        try {
+            URI uri = URI.create(baseUrl);
+            HttpRequest req = HttpRequest.newBuilder(uri)
+                    .timeout(Duration.ofSeconds(5))
+                    .header("User-Agent", "Mozilla/5.0 (NCM Player NeoForge Mod)")
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            return resp.statusCode() >= 200 && resp.statusCode() < 400;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /**
+     * 获取 API 服务器不可用的原因
+     * @return 错误信息，如果服务器可用则返回 null
+     */
+    public String getHealthError() {
+        try {
+            URI uri = URI.create(baseUrl);
+            HttpRequest req = HttpRequest.newBuilder(uri)
+                    .timeout(Duration.ofSeconds(5))
+                    .header("User-Agent", "Mozilla/5.0 (NCM Player NeoForge Mod)")
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (resp.statusCode() >= 200 && resp.statusCode() < 400) {
+                return null;
+            }
+            return "HTTP " + resp.statusCode();
+        } catch (java.net.ConnectException e) {
+            return "无法连接到服务器";
+        } catch (java.net.UnknownHostException e) {
+            return "服务器地址无效";
+        } catch (java.net.SocketTimeoutException e) {
+            return "连接超时";
+        } catch (Exception e) {
+            return e.getClass().getSimpleName() + ": " + e.getMessage();
+        }
+    }
+
     public JsonObject getJson(String pathAndQuery) throws IOException, InterruptedException {
         URI uri = URI.create(baseUrl + pathAndQuery);
         HttpRequest req = HttpRequest.newBuilder(uri)

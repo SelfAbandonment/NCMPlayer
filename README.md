@@ -1,10 +1,22 @@
 # 🎵 NCM Player
 
 [![Build & Auto Release](https://github.com/SelfAbandonment/NCMPlayer/actions/workflows/build.yml/badge.svg)](https://github.com/SelfAbandonment/NCMPlayer/actions/workflows/build.yml)
+[![Latest Release](https://img.shields.io/github/v/release/SelfAbandonment/NCMPlayer?label=version)](https://github.com/SelfAbandonment/NCMPlayer/releases/latest)
 
 **在 Minecraft 中畅听网易云音乐！**
 
 NCM Player 是一个 NeoForge 模组，让你可以在 Minecraft 游戏中搜索和播放网易云音乐。
+
+## ⚠️ 重要提示
+
+**本模组需要自建网易云音乐 API 服务器才能正常工作！**
+
+如果没有配置 API 服务器，模组将无法：
+- 扫码登录
+- 搜索歌曲
+- 播放音乐
+
+请先阅读下方「自建 API 服务器」章节完成配置。
 
 ## ✨ 功能
 

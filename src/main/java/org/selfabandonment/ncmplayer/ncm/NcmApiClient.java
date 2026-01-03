@@ -1,4 +1,4 @@
-package org.demo.portalteleport.ncm;
+package org.selfabandonment.ncmplayer.ncm;
 
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -13,10 +13,15 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * 网易云音乐 API 客户端
+ *
+ * @author SelfAbandonment
+ */
 public final class NcmApiClient {
     private static final Gson GSON = new Gson();
 
-    private final String baseUrl; // e.g. http://101.35.114.214:3000
+    private final String baseUrl;
     private final HttpClient http;
 
     public NcmApiClient(String baseUrl) {
@@ -33,7 +38,7 @@ public final class NcmApiClient {
         URI uri = URI.create(baseUrl + pathAndQuery);
         HttpRequest req = HttpRequest.newBuilder(uri)
                 .timeout(Duration.ofSeconds(30))
-                .header("User-Agent", "Mozilla/5.0 (PortalTeleport NeoForge Mod)")
+                .header("User-Agent", "Mozilla/5.0 (NCM Player NeoForge Mod)")
                 .GET()
                 .build();
         HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -43,7 +48,7 @@ public final class NcmApiClient {
         return GSON.fromJson(resp.body(), JsonObject.class);
     }
 
-    // ---------------- QR login ----------------
+    // ==================== 扫码登录 ====================
 
     public String qrKey() throws IOException, InterruptedException {
         long ts = System.currentTimeMillis();
@@ -62,7 +67,7 @@ public final class NcmApiClient {
         return getJson("/login/qr/check?key=" + url(unikey) + "&timestamp=" + ts);
     }
 
-    // ---------------- song url ----------------
+    // ==================== 歌曲 URL ====================
 
     public SongUrlResult songUrlV1(long id, String level, String cookieForApi) throws IOException, InterruptedException {
         long ts = System.currentTimeMillis();
@@ -73,7 +78,7 @@ public final class NcmApiClient {
 
         JsonObject obj = getJson(q);
         var dataArr = obj.getAsJsonArray("data");
-        if (dataArr == null || dataArr.size() == 0) {
+        if (dataArr == null || dataArr.isEmpty()) {
             return new SongUrlResult(id, level, null, 0, 0, 0, 0, "no data");
         }
         var item = dataArr.get(0).getAsJsonObject();
@@ -93,7 +98,7 @@ public final class NcmApiClient {
         public long expiresAtEpochMs(long nowEpochMs) { return nowEpochMs + (Math.max(1, expiSeconds) * 1000L); }
     }
 
-    // ---------------- search ----------------
+    // ==================== 搜索 ====================
 
     public List<SearchSong> search(String keywords, int limit, String cookieForApi) throws IOException, InterruptedException {
         long ts = System.currentTimeMillis();
@@ -146,3 +151,4 @@ public final class NcmApiClient {
         return s.endsWith("/") ? s.substring(0, s.length() - 1) : s;
     }
 }
+

@@ -1,4 +1,4 @@
-package org.demo.portalteleport.ncm;
+package org.selfabandonment.ncmplayer.ncm;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -9,6 +9,11 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
+/**
+ * 会话存储
+ *
+ * @author SelfAbandonment
+ */
 public final class SessionStore {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
@@ -19,7 +24,7 @@ public final class SessionStore {
     private static Path filePath() {
         return Minecraft.getInstance().gameDirectory.toPath()
                 .resolve("config")
-                .resolve("portalteleport_ncm_session.json");
+                .resolve("ncmplayer_session.json");
     }
 
     public static Path debugPath() {
@@ -42,3 +47,4 @@ public final class SessionStore {
         }
     }
 }
+

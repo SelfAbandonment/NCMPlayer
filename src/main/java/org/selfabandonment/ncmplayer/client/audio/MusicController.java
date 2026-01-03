@@ -1,76 +1,53 @@
-package org.demo.portalteleport.client.audio;
+package org.selfabandonment.ncmplayer.client.audio;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
-import org.demo.portalteleport.Portalteleport;
-import org.demo.portalteleport.config.ModConfig;
-import org.demo.portalteleport.ncm.CookieSanitizer;
-import org.demo.portalteleport.ncm.NcmApiClient;
-import org.demo.portalteleport.ncm.SessionStore;
-import org.demo.portalteleport.ncm.SongUrlProvider;
-import org.demo.portalteleport.util.I18n;
+import org.selfabandonment.ncmplayer.NcmPlayer;
+import org.selfabandonment.ncmplayer.config.ModConfig;
+import org.selfabandonment.ncmplayer.ncm.CookieSanitizer;
+import org.selfabandonment.ncmplayer.ncm.NcmApiClient;
+import org.selfabandonment.ncmplayer.ncm.SessionStore;
+import org.selfabandonment.ncmplayer.ncm.SongUrlProvider;
+import org.selfabandonment.ncmplayer.util.I18n;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.net.URI;
 
 /**
- * 客户端音乐控制器
- * 提供网易云音乐播放的核心控制功能：
- * - 播放指定歌曲（通过 songId）
- * - 暂停/继续播放
- * - 停止播放
- * - 音量控制
- * 使用方法：
- *   ClientMusicController.playSongId(12345);  // 播放歌曲
- *   ClientMusicController.togglePause();       // 暂停/继续
- *   ClientMusicController.stop();              // 停止
- *   ClientMusicController.setVolume(0.5f);     // 设置音量
+ * 音乐播放控制器
  *
  * @author SelfAbandonment
  */
-public final class ClientMusicController {
+public final class MusicController {
 
-    private static final Logger LOGGER = LoggerFactory.getLogger(Portalteleport.MODID);
-
-    /** 流式 MP3 播放器实例 */
+    private static final Logger LOGGER = LoggerFactory.getLogger(NcmPlayer.MODID);
     private static final StreamingMp3Player PLAYER = new StreamingMp3Player();
 
-    /** 歌曲 URL 提供者（延迟初始化） */
     private static SongUrlProvider provider;
-
-    /** 是否已初始化默认音量 */
     private static boolean volumeInitialized = false;
 
-    private ClientMusicController() {
-        // 工具类，禁止实例化
+    private MusicController() {
     }
 
     /**
      * 获取播放器实例
-     *
-     * @return 流式 MP3 播放器
      */
-    @SuppressWarnings("unused") // 公开 API，供外部或未来使用
+    @SuppressWarnings("unused")
     public static StreamingMp3Player player() {
         return PLAYER;
     }
 
     /**
-     * 每帧更新（由客户端 tick 事件调用）
-     * 负责：
-     * - 首次初始化默认音量
-     * - 更新播放器状态
+     * 每帧更新
      */
     public static void tick() {
-        // 首次初始化音量
         if (!volumeInitialized) {
             try {
                 float defaultVol = ModConfig.COMMON.musicDefaultVolume.get().floatValue();
                 PLAYER.setVolume(defaultVol);
                 volumeInitialized = true;
             } catch (Exception ignored) {
-                // 配置可能还未加载
             }
         }
         PLAYER.tick();
@@ -84,7 +61,7 @@ public final class ClientMusicController {
     }
 
     /**
-     * 切换暂停/播放状态
+     * 切换暂停/播放
      */
     public static void togglePause() {
         var state = PLAYER.getState();
@@ -97,30 +74,22 @@ public final class ClientMusicController {
 
     /**
      * 获取当前音量
-     *
-     * @return 音量值 (0.0 ~ 1.0)
      */
-    @SuppressWarnings("unused") // 公开 API，供 GUI 音量滑块使用
+    @SuppressWarnings("unused")
     public static float getVolume() {
         return PLAYER.getVolume();
     }
 
     /**
      * 设置音量
-     *
-     * @param volume 音量值 (0.0 ~ 1.0)
      */
-    @SuppressWarnings("unused") // 公开 API，供 GUI 音量滑块使用
+    @SuppressWarnings("unused")
     public static void setVolume(float volume) {
         PLAYER.setVolume(volume);
     }
 
     /**
      * 播放指定歌曲
-     * <p>
-     * 需要先通过 QR 登录保存会话 cookie。
-     *
-     * @param songId 网易云音乐歌曲 ID
      */
     public static void playSongId(long songId) {
         try {
@@ -136,11 +105,6 @@ public final class ClientMusicController {
         }
     }
 
-    /**
-     * 确保 URL 提供者已初始化
-     *
-     * @throws IllegalStateException 如果未登录或登录信息无效
-     */
     private static void ensureProvider() {
         if (provider != null) {
             return;
@@ -165,15 +129,11 @@ public final class ClientMusicController {
         provider = new SongUrlProvider(api, cookieForApi);
     }
 
-    /**
-     * 向玩家发送聊天消息
-     *
-     * @param message 消息内容
-     */
     private static void sendMessage(String message) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
-            mc.player.displayClientMessage(Component.literal("[PortalTeleport] " + message), false);
+            mc.player.displayClientMessage(Component.literal("[NCM Player] " + message), false);
         }
     }
 }
+

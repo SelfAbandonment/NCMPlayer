@@ -1,7 +1,10 @@
-package org.demo.portalteleport.ncm;
+package org.selfabandonment.ncmplayer.ncm;
 
 import java.util.List;
+
 /**
+ * 歌曲 URL 提供者
+ *
  * @author SelfAbandonment
  */
 public final class SongUrlProvider {
@@ -11,7 +14,6 @@ public final class SongUrlProvider {
     private final NcmApiClient api;
     private final String cookieForApi;
 
-    // cached
     private long cachedSongId = -1;
     private String cachedUrl = null;
     private long cachedExpiresAt = 0;
@@ -24,7 +26,6 @@ public final class SongUrlProvider {
     public synchronized String getPlayableMp3Url(long songId) throws Exception {
         long now = System.currentTimeMillis();
 
-        // cache hit if not near expiry (give 5s safety)
         if (songId == cachedSongId && cachedUrl != null && now < (cachedExpiresAt - 5000)) {
             return cachedUrl;
         }
@@ -35,7 +36,6 @@ public final class SongUrlProvider {
                 var r = api.songUrlV1(songId, level, cookieForApi);
                 if (!r.ok()) continue;
 
-                // If lossless returns flac and we only support MP3, downgrade
                 if (r.type() != null && !r.type().equalsIgnoreCase("mp3")) {
                     continue;
                 }
@@ -53,3 +53,4 @@ public final class SongUrlProvider {
         throw new IllegalStateException("No playable URL for songId=" + songId);
     }
 }
+

@@ -1,9 +1,12 @@
-package org.demo.portalteleport.ncm;
+package org.selfabandonment.ncmplayer.ncm;
+
 import java.util.*;
+
 /**
+ * Cookie 清洗工具
+ *
  * @author SelfAbandonment
  */
-
 public final class CookieSanitizer {
 
     private static final Set<String> ATTRS = Set.of(
@@ -14,8 +17,7 @@ public final class CookieSanitizer {
 
     public static String sanitizeForApi(String cookieRaw) {
         if (cookieRaw == null) return "";
-        // The API returns many Set-Cookie chunks separated by ";;" and with attributes.
-        // We'll split by ';' and keep only real key=value cookies.
+
         String[] parts = cookieRaw.split(";");
         Map<String, String> cookies = new LinkedHashMap<>();
 
@@ -30,22 +32,14 @@ public final class CookieSanitizer {
 
             if (key.isEmpty()) continue;
             if (ATTRS.contains(key.toLowerCase(Locale.ROOT))) continue;
-
-            // Some "delete cookie" may have empty value; ignore those
             if (val.isEmpty()) continue;
 
-            // Keep last value if repeated
             cookies.put(key, val);
-        }
-
-        // Must contain MUSIC_U for logged-in features (VIP tracks)
-        if (!cookies.containsKey("MUSIC_U")) {
-            // Still return what we have; caller can decide if it's acceptable
         }
 
         StringBuilder sb = new StringBuilder();
         for (var e : cookies.entrySet()) {
-            if (sb.length() > 0) sb.append("; ");
+            if (!sb.isEmpty()) sb.append("; ");
             sb.append(e.getKey()).append("=").append(e.getValue());
         }
         return sb.toString();
@@ -56,3 +50,4 @@ public final class CookieSanitizer {
         return cookieForApi.contains("MUSIC_U=");
     }
 }
+

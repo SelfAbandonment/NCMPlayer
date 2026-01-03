@@ -60,6 +60,25 @@ searchLimit = 30
 - 歌曲搜索
 - 音乐播放
 
+## 🔄 开发说明
+
+### 自动构建触发条件
+只有以下文件变化时才会触发自动构建和发布：
+- `src/**` - 源代码
+- `build.gradle` / `settings.gradle` - 构建配置
+- `gradle.properties` - 版本号等
+- `gradle/**` - Gradle Wrapper
+
+### 跳过构建
+在 commit message 中包含以下关键词可跳过构建：
+- `[skip ci]`
+- `[ci skip]`
+
+示例：
+```bash
+git commit -m "docs: 更新 README [skip ci]"
+```
+
 ## 📄 许可证
 
 MIT License

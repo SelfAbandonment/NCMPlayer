@@ -50,7 +50,7 @@ searchLimit = 30
 ## 🔧 自建 API 服务器
 
 本模组需要网易云音乐 API 服务器。推荐使用：
-- [NeteaseCloudMusicApi](https://github.com/Binaryify/NeteaseCloudMusicApi)
+- [NeteaseCloudMusicApiEnhanced](https://github.com/NeteaseCloudMusicApiEnhanced)
 
 ## 📝 更新日志
 

@@ -8,6 +8,10 @@ on:
   release:
     types: [ published ]
 
+# 需要写入权限以上传 Release 资产
+permissions:
+  contents: write
+
 jobs:
   release:
     name: Build and Upload Release
@@ -45,20 +49,19 @@ jobs:
       - name: Build with Gradle
         run: ./gradlew build --no-daemon
 
-      # 获取版本号
-      - name: Get version
-        id: get_version
+      # 查找 JAR 文件
+      - name: Find JAR files
+        id: find_jars
         run: |
-          VERSION=$(grep "mod_version" gradle.properties | cut -d'=' -f2 | tr -d ' ')
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Looking for JAR files..."
+          ls -la build/libs/ || echo "No libs directory"
+          JAR_FILE=$(find build/libs -name "portalteleport-*.jar" ! -name "*-sources.jar" | head -1)
+          echo "jar_file=$JAR_FILE" >> $GITHUB_OUTPUT
 
       # 上传到 Release
       - name: Upload Release Assets
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
-          files: |
-            build/libs/portalteleport-*.jar
-            !build/libs/*-sources.jar
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          files: build/libs/portalteleport-*.jar
+          fail_on_unmatched_files: false
 

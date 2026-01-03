@@ -24,7 +24,18 @@ jobs:
         with:
           java-version: '21'
           distribution: 'temurin'
-          cache: 'gradle'
+
+      # 设置 Gradle
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # 生成 Gradle Wrapper（如果缺失）
+      - name: Generate Gradle Wrapper if missing
+        run: |
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "Gradle wrapper jar missing, generating..."
+            gradle wrapper --gradle-version=8.10
+          fi
 
       # 赋予 Gradle 执行权限
       - name: Grant execute permission for gradlew

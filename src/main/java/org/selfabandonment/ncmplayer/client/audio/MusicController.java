@@ -26,6 +26,7 @@ public final class MusicController {
 
     private static SongUrlProvider provider;
     private static boolean volumeInitialized = false;
+    private static boolean wasPlaying = false;
 
     private MusicController() {
     }
@@ -51,6 +52,76 @@ public final class MusicController {
             }
         }
         PLAYER.tick();
+
+        // 检测播放结束，自动播放下一首
+        var state = PLAYER.getState();
+
+        // 当前是否在播放
+        boolean isPlaying = (state == StreamingMp3Player.State.PLAYING || state == StreamingMp3Player.State.BUFFERING);
+        // 是否已停止（播放结束）- 同时检查 STOPPED 和 IDLE
+        boolean isStopped = (state == StreamingMp3Player.State.STOPPED || state == StreamingMp3Player.State.IDLE);
+
+        // 先检查是否需要自动下一首（之前在播放，现在停止了）
+        if (wasPlaying && isStopped) {
+            LOGGER.info("Song finished, wasPlaying={}, state={}, playlist size={}", wasPlaying, state, Playlist.size());
+            wasPlaying = false;
+            autoPlayNext();
+        }
+        // 再更新播放状态
+        else if (isPlaying) {
+            wasPlaying = true;
+        }
+        // 暂停状态不改变 wasPlaying
+    }
+
+    /**
+     * 自动播放下一首
+     */
+    private static void autoPlayNext() {
+        if (Playlist.size() <= 0) {
+            LOGGER.info("autoPlayNext: playlist is empty");
+            return;
+        }
+
+        var repeatMode = Playlist.getRepeatMode();
+        boolean shuffle = Playlist.isShuffle();
+        int currentIdx = Playlist.getCurrentIndex();
+        int size = Playlist.size();
+
+        LOGGER.info("autoPlayNext: repeatMode={}, shuffle={}, currentIdx={}, size={}", repeatMode, shuffle, currentIdx, size);
+
+        if (repeatMode == Playlist.RepeatMode.ONE) {
+            // 单曲循环：重新播放当前歌曲
+            if (currentIdx >= 0 && currentIdx < size) {
+                LOGGER.info("autoPlayNext: single repeat, playing index {}", currentIdx);
+                Playlist.playAt(currentIdx);
+            }
+        } else if (shuffle) {
+            // 随机播放：随机选择一首歌（排除当前歌曲）
+            int nextIdx;
+            if (size == 1) {
+                nextIdx = 0;
+            } else {
+                // 从除当前歌曲外的歌曲中随机选择
+                int randomOffset = (int) (Math.random() * (size - 1));
+                nextIdx = (currentIdx + 1 + randomOffset) % size;
+            }
+            LOGGER.info("autoPlayNext: shuffle, playing index {}", nextIdx);
+            Playlist.playAt(nextIdx);
+        } else if (repeatMode == Playlist.RepeatMode.ALL) {
+            // 列表循环：播放下一首（自动循环到第一首）
+            int nextIdx = (currentIdx + 1) % size;
+            LOGGER.info("autoPlayNext: list repeat, playing index {}", nextIdx);
+            Playlist.playAt(nextIdx);
+        } else {
+            // 不循环：还有下一首就播放
+            if (currentIdx < size - 1) {
+                LOGGER.info("autoPlayNext: no repeat, playing index {}", currentIdx + 1);
+                Playlist.playAt(currentIdx + 1);
+            } else {
+                LOGGER.info("autoPlayNext: no repeat, reached end of playlist");
+            }
+        }
     }
 
     /**
@@ -83,26 +154,127 @@ public final class MusicController {
     /**
      * 设置音量
      */
-    @SuppressWarnings("unused")
     public static void setVolume(float volume) {
         PLAYER.setVolume(volume);
     }
 
     /**
-     * 播放指定歌曲
+     * 获取播放状态
      */
-    public static void playSongId(long songId) {
+    public static StreamingMp3Player.State getState() {
+        return PLAYER.getState();
+    }
+
+    /**
+     * 是否正在播放
+     */
+    public static boolean isPlaying() {
+        return PLAYER.isPlaying();
+    }
+
+    /**
+     * 是否暂停中
+     */
+    public static boolean isPaused() {
+        return PLAYER.getState() == StreamingMp3Player.State.PAUSED;
+    }
+
+    /**
+     * 获取当前播放位置（毫秒）
+     */
+    public static long getPlayedMs() {
+        return PLAYER.getPlayedMs();
+    }
+
+    /**
+     * 获取预估总时长（毫秒）
+     */
+    public static long getDurationMs() {
+        return PLAYER.getDurationMs();
+    }
+
+    /**
+     * 是否有已知的精确时长
+     */
+    public static boolean hasKnownDuration() {
+        return PLAYER.hasKnownDuration();
+    }
+
+    /**
+     * 检查解码是否完成
+     */
+    public static boolean isDecodingComplete() {
+        return PLAYER.isDecodingComplete();
+    }
+
+    /**
+     * 获取播放进度（0.0 ~ 1.0）
+     */
+    public static float getProgress() {
+        return PLAYER.getProgress();
+    }
+
+    /**
+     * 跳转到指定进度
+     * @param progress 进度 (0.0 ~ 1.0)
+     */
+    public static void seekToProgress(float progress) {
+        PLAYER.seekToProgress(progress);
+    }
+
+    /**
+     * 跳转到指定时间
+     * @param targetMs 目标时间（毫秒）
+     */
+    public static void seek(long targetMs) {
+        PLAYER.seek(targetMs);
+    }
+
+    /**
+     * 是否支持跳转
+     */
+    public static boolean canSeek() {
+        return PLAYER.canSeek();
+    }
+
+    /**
+     * 格式化时间为 mm:ss
+     */
+    public static String formatTime(long ms) {
+        if (ms < 0) ms = 0;
+        long totalSeconds = ms / 1000;
+        long minutes = totalSeconds / 60;
+        long seconds = totalSeconds % 60;
+        return String.format("%d:%02d", minutes, seconds);
+    }
+
+    /**
+     * 播放指定歌曲（带时长）
+     */
+    public static void playSongId(long songId, long durationMs) {
         try {
             ensureProvider();
 
             String url = provider.getPlayableMp3Url(songId);
             PLAYER.play(URI.create(url));
 
+            // 设置已知的精确时长
+            if (durationMs > 0) {
+                PLAYER.setKnownDuration(durationMs);
+            }
+
             sendMessage(I18n.translateString(I18n.MSG_MUSIC_PLAYING, songId));
         } catch (Exception e) {
             sendMessage(I18n.translateString(I18n.MSG_MUSIC_PLAY_FAILED, e.getMessage()));
             LOGGER.error("Failed to play song {}", songId, e);
         }
+    }
+
+    /**
+     * 播放指定歌曲（不带时长，向后兼容）
+     */
+    public static void playSongId(long songId) {
+        playSongId(songId, 0);
     }
 
     private static void ensureProvider() {

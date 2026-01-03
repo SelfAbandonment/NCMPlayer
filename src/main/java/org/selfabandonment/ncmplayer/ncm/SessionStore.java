@@ -17,7 +17,49 @@ import java.nio.file.Path;
 public final class SessionStore {
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
 
-    public record Session(String baseUrl, String cookieForApi, long savedAtEpochMs) {}
+    /**
+     * 会话信息
+     */
+    public record Session(String baseUrl, String cookieForApi, long savedAtEpochMs,
+                          Long userId, String nickname, String avatarUrl, Integer vipType) {
+
+        /**
+         * 旧版构造器（向后兼容）
+         */
+        public Session(String baseUrl, String cookieForApi, long savedAtEpochMs) {
+            this(baseUrl, cookieForApi, savedAtEpochMs, null, null, null, null);
+        }
+
+        /**
+         * 是否有用户信息
+         */
+        public boolean hasUserInfo() {
+            return userId != null && nickname != null && !nickname.isBlank();
+        }
+
+        /**
+         * 获取显示名称
+         */
+        public String displayName() {
+            if (nickname != null && !nickname.isBlank()) {
+                return nickname;
+            }
+            return "用户" + (userId != null ? userId : "");
+        }
+
+        /**
+         * VIP 类型文字
+         */
+        public String vipTypeString() {
+            if (vipType == null) return "";
+            return switch (vipType) {
+                case 0 -> "";
+                case 10 -> " [黑胶VIP]";
+                case 11 -> " [黑胶SVIP]";
+                default -> " [VIP]";
+            };
+        }
+    }
 
     private SessionStore() {}
 

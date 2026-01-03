@@ -15,6 +15,8 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FastColor;
 
 import org.selfabandonment.ncmplayer.client.audio.MusicController;
+import org.selfabandonment.ncmplayer.client.audio.Playlist;
+import org.selfabandonment.ncmplayer.client.audio.StreamingMp3Player;
 import org.selfabandonment.ncmplayer.config.ModConfig;
 import org.selfabandonment.ncmplayer.ncm.CookieSanitizer;
 import org.selfabandonment.ncmplayer.ncm.NcmApiClient;
@@ -23,7 +25,6 @@ import org.selfabandonment.ncmplayer.util.I18n;
 
 import javax.annotation.Nullable;
 import java.io.ByteArrayInputStream;
-import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.Base64;
@@ -35,28 +36,44 @@ import java.util.Base64;
  */
 public final class MusicScreen extends Screen {
 
-    private enum Tab { SEARCH, QR_LOGIN }
+    private enum Tab { PLAYER, PLAYLIST, USER_INFO, QR_LOGIN }
 
     private final String baseUrl;
-    private Tab tab = Tab.SEARCH;
+    private Tab tab = Tab.PLAYER;
 
     private ScheduledExecutorService exec;
-    private volatile String infoText = "";
-    private volatile String errorText = "";
+    private String loginStatus = "";
 
     // 搜索组件
     private EditBox keywordBox;
     private Button searchBtn;
-    private Button pauseBtn;
-    private Button stopBtn;
-    private Button toQrBtn;
-    private Button clearSessionBtn;
-    private final List<Button> songButtons = new ArrayList<>();
-    private List<NcmApiClient.SearchSong> currentSongs = new ArrayList<>();
-    private int scrollOffset = 0;
+    private Button loginBtn;
+    private Button playlistBtn;
+    private final List<Button> searchResultButtons = new ArrayList<>();
+    private final List<Button> playlistButtons = new ArrayList<>();
+    private List<NcmApiClient.SearchSong> searchResults = new ArrayList<>();
+    private int searchScrollOffset = 0;
+    private int playlistScrollOffset = 0;
 
-    // 扫码登录组件
-    private Button backToSearchBtn;
+    // 播放控制
+    private Button prevBtn;
+    private Button playPauseBtn;
+    private Button nextBtn;
+    private Button shuffleBtn;
+    private Button repeatBtn;
+
+    // 音量和进度条区域
+    private boolean draggingVolume = false;
+    private boolean draggingProgress = false;
+    private float dragProgress = 0f;
+    private int volumeSliderX, volumeSliderY, volumeSliderW, volumeSliderH;
+    private int progressBarX, progressBarY, progressBarW, progressBarH;
+
+    // 搜索列表区域
+    private int listX, listY, listW, listH;
+
+    // 扫码登录
+    private Button backBtn;
     private Button refreshQrBtn;
     private volatile String unikey;
     private volatile int lastCode = -1;
@@ -67,21 +84,32 @@ public final class MusicScreen extends Screen {
     @Nullable private ResourceLocation qrTextureLocation;
     private int qrW = 0, qrH = 0;
 
-    // 主题颜色
-    private static final int COLOR_BG_DARK = FastColor.ARGB32.color(220, 20, 20, 25);
-    private static final int COLOR_BG_PANEL = FastColor.ARGB32.color(200, 35, 35, 45);
-    private static final int COLOR_ACCENT = FastColor.ARGB32.color(255, 225, 60, 80);
-    private static final int COLOR_ACCENT_LIGHT = FastColor.ARGB32.color(255, 255, 100, 120);
-    private static final int COLOR_TEXT_PRIMARY = 0xFFFFFF;
-    private static final int COLOR_TEXT_SECONDARY = 0xBBBBBB;
-    private static final int COLOR_TEXT_ERROR = 0xFF6B6B;
-    private static final int COLOR_TEXT_SUCCESS = 0x6BFF6B;
-    private static final int COLOR_BORDER = FastColor.ARGB32.color(255, 60, 60, 70);
+    // 播放列表页面
+    private Button backFromPlaylistBtn;
 
-    // 布局常量
-    private static final int HEADER_HEIGHT = 50;
-    private static final int FOOTER_HEIGHT = 45;
-    private static final int SIDE_MARGIN = 20;
+    // 用户信息页面
+    private Button backFromUserBtn;
+    private Button userBtn;
+    private Button logoutBtn;
+    private volatile NcmApiClient.UserDetail userDetail;
+    private volatile NcmApiClient.UserSubcount userSubcount;
+    private volatile boolean loadingUserInfo = false;
+
+    // 主题颜色
+    private static final int COLOR_BG = FastColor.ARGB32.color(245, 24, 24, 28);
+    private static final int COLOR_PANEL = FastColor.ARGB32.color(255, 32, 32, 38);
+    private static final int COLOR_ACCENT = FastColor.ARGB32.color(255, 236, 65, 65);
+    private static final int COLOR_ACCENT_DIM = FastColor.ARGB32.color(255, 180, 50, 50);
+    private static final int COLOR_TEXT = 0xFFFFFF;
+    private static final int COLOR_TEXT_DIM = 0x888888;
+    private static final int COLOR_TEXT_SUCCESS = 0x66FF66;
+    private static final int COLOR_SLIDER_BG = FastColor.ARGB32.color(200, 50, 50, 55);
+    private static final int COLOR_SLIDER_HANDLE = FastColor.ARGB32.color(255, 255, 255, 255);
+
+    // 布局
+    private static final int HEADER_HEIGHT = 35;
+    private static final int FOOTER_HEIGHT = 65;
+    private static final int LIST_ITEM_HEIGHT = 22;
 
     public MusicScreen(String baseUrl) {
         super(I18n.translate(I18n.MUSIC_TITLE));
@@ -92,14 +120,14 @@ public final class MusicScreen extends Screen {
     @Override
     protected void init() {
         exec = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "ncmplayer-music-ui");
+            Thread t = new Thread(r, "ncmplayer-ui");
             t.setDaemon(true);
             return t;
         });
 
         buildWidgets();
-        refreshInfo();
-        setTab(Tab.SEARCH);
+        updateLoginStatus();
+        setTab(Tab.PLAYER);
     }
 
     @Override
@@ -111,215 +139,373 @@ public final class MusicScreen extends Screen {
         exec = null;
     }
 
+    private void updateLoginStatus() {
+        SessionStore.Session session = SessionStore.loadOrNull();
+        if (session == null) {
+            loginStatus = "未登录";
+        } else {
+            boolean valid = CookieSanitizer.hasMusicU(session.cookieForApi());
+            if (valid) {
+                if (session.hasUserInfo()) {
+                    // 显示用户昵称
+                    String name = session.nickname();
+                    if (name.length() > 8) name = name.substring(0, 8) + "..";
+                    loginStatus = name;
+                } else {
+                    loginStatus = "已登录";
+                }
+            } else {
+                loginStatus = "登录失效";
+            }
+        }
+    }
+
     private void buildWidgets() {
         int cx = this.width / 2;
-        int contentTop = HEADER_HEIGHT + 10;
-        int footerY = this.height - FOOTER_HEIGHT + 10;
+        int contentW = Math.min(360, this.width - 30);
+        int contentL = cx - contentW / 2;
 
-        toQrBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_QR_LOGIN), b -> setTab(Tab.QR_LOGIN))
-                .bounds(SIDE_MARGIN, 15, 100, 20).build();
-        addRenderableWidget(toQrBtn);
+        // === 播放器页面 ===
 
-        backToSearchBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_BACK_SEARCH), b -> setTab(Tab.SEARCH))
-                .bounds(SIDE_MARGIN, 15, 100, 20).build();
-        addRenderableWidget(backToSearchBtn);
+        // 右上角按钮（紧凑排列，使用统一样式）
+        int topBtnY = 6;
+        int topBtnH = 16;
+        int topBtnW = 20;
+        int topBtnGap = 2;
+        int rightEdge = contentL + contentW;
 
-        int searchBarWidth = Math.min(240, this.width - 120);
-        int searchBtnWidth = 70;
-        int totalSearchWidth = searchBarWidth + 5 + searchBtnWidth;
-        int searchStartX = cx - totalSearchWidth / 2;
+        // 登录按钮（最右边）
+        loginBtn = Button.builder(Component.literal("🔐"), b -> setTab(Tab.QR_LOGIN))
+                .bounds(rightEdge - topBtnW, topBtnY, topBtnW, topBtnH).build();
+        addRenderableWidget(loginBtn);
 
-        keywordBox = new EditBox(this.font, searchStartX, contentTop, searchBarWidth, 22, Component.literal(""));
-        keywordBox.setHint(I18n.translate(I18n.MUSIC_HINT_SEARCH));
-        keywordBox.setValue("");
+        // 用户信息按钮（登录按钮左边）
+        userBtn = Button.builder(Component.literal("👤"), b -> setTab(Tab.USER_INFO))
+                .bounds(rightEdge - topBtnW * 2 - topBtnGap, topBtnY, topBtnW, topBtnH).build();
+        addRenderableWidget(userBtn);
+
+        // 搜索栏
+        int searchY = HEADER_HEIGHT + 5;
+        keywordBox = new EditBox(this.font, contentL, searchY, contentW - 55, 20, Component.literal(""));
+        keywordBox.setHint(Component.literal("搜索歌曲..."));
         keywordBox.setMaxLength(100);
         addRenderableWidget(keywordBox);
 
-        searchBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_SEARCH), b -> doSearchAsync())
-                .bounds(searchStartX + searchBarWidth + 5, contentTop, searchBtnWidth, 22).build();
+        searchBtn = Button.builder(Component.literal("🔍"), b -> doSearchAsync())
+                .bounds(contentL + contentW - 50, searchY, 50, 20).build();
         addRenderableWidget(searchBtn);
 
-        int btnWidth = 75;
-        int btnGap = 10;
-        int totalBtnWidth = btnWidth * 3 + btnGap * 2;
-        int btnStartX = cx - totalBtnWidth / 2;
+        // 搜索结果列表区域
+        listX = contentL;
+        listY = HEADER_HEIGHT + 32;
+        listW = contentW;
+        listH = this.height - listY - FOOTER_HEIGHT - 5;
 
-        pauseBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_PAUSE), b -> MusicController.togglePause())
-                .bounds(btnStartX, footerY, btnWidth, 20).build();
-        addRenderableWidget(pauseBtn);
+        // 底部控制区
+        int footerTop = this.height - FOOTER_HEIGHT;
 
-        stopBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_STOP), b -> MusicController.stop())
-                .bounds(btnStartX + btnWidth + btnGap, footerY, btnWidth, 20).build();
-        addRenderableWidget(stopBtn);
+        // 进度条（居中，留出时间显示空间）
+        progressBarW = contentW - 80;
+        progressBarH = 4;
+        progressBarX = contentL + 40;
+        progressBarY = footerTop + 12;
 
-        clearSessionBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_LOGOUT), b -> clearSession())
-                .bounds(btnStartX + (btnWidth + btnGap) * 2, footerY, btnWidth, 20).build();
-        addRenderableWidget(clearSessionBtn);
+        // 底部按钮行 - 所有按钮居中排列
+        int btnY = footerTop + 35;
+        int btnH = 20;
+        int btnW = 24;
+        int gap = 6;
 
-        refreshQrBtn = Button.builder(I18n.translate(I18n.MUSIC_BTN_REFRESH_QR), b -> refreshQrAsync())
-                .bounds(cx - 60, footerY, 120, 22).build();
+        // 按钮顺序: [📋] [🔀] [⏮] [▶] [⏭] [🔁] [🔊━━]
+        int sliderW = 40;
+        int totalW = btnW * 6 + gap * 6 + sliderW;
+        int startX = cx - totalW / 2;
+
+        playlistBtn = Button.builder(Component.literal("📋"), b -> setTab(Tab.PLAYLIST))
+                .bounds(startX, btnY, btnW, btnH).build();
+        addRenderableWidget(playlistBtn);
+
+        shuffleBtn = Button.builder(Component.literal("🔀"), b -> Playlist.toggleShuffle())
+                .bounds(startX + btnW + gap, btnY, btnW, btnH).build();
+        addRenderableWidget(shuffleBtn);
+
+        prevBtn = Button.builder(Component.literal("⏮"), b -> Playlist.previous())
+                .bounds(startX + (btnW + gap) * 2, btnY, btnW, btnH).build();
+        addRenderableWidget(prevBtn);
+
+        playPauseBtn = Button.builder(Component.literal("▶"), b -> togglePlayPause())
+                .bounds(startX + (btnW + gap) * 3, btnY, btnW, btnH).build();
+        addRenderableWidget(playPauseBtn);
+
+        nextBtn = Button.builder(Component.literal("⏭"), b -> Playlist.next())
+                .bounds(startX + (btnW + gap) * 4, btnY, btnW, btnH).build();
+        addRenderableWidget(nextBtn);
+
+        repeatBtn = Button.builder(Component.literal("🔁"), b -> Playlist.toggleRepeatMode())
+                .bounds(startX + (btnW + gap) * 5, btnY, btnW, btnH).build();
+        addRenderableWidget(repeatBtn);
+
+        // 音量滑块
+        volumeSliderW = sliderW;
+        volumeSliderH = 4;
+        volumeSliderX = startX + (btnW + gap) * 6;
+        volumeSliderY = btnY + 8;
+
+
+        // === 扫码登录页面 ===
+        backBtn = Button.builder(Component.literal("← 返回"), b -> setTab(Tab.PLAYER))
+                .bounds(contentL, 10, 60, 20).build();
+        addRenderableWidget(backBtn);
+
+        refreshQrBtn = Button.builder(Component.literal("刷新二维码"), b -> refreshQrAsync())
+                .bounds(cx - 45, this.height - 35, 90, 20).build();
         addRenderableWidget(refreshQrBtn);
+
+        // === 播放列表页面 ===
+        backFromPlaylistBtn = Button.builder(Component.literal("← 返回"), b -> setTab(Tab.PLAYER))
+                .bounds(contentL, 10, 60, 20).build();
+        addRenderableWidget(backFromPlaylistBtn);
+
+        // === 用户信息页面 ===
+        backFromUserBtn = Button.builder(Component.literal("← 返回"), b -> setTab(Tab.PLAYER))
+                .bounds(contentL, 10, 60, 20).build();
+        addRenderableWidget(backFromUserBtn);
+
+        logoutBtn = Button.builder(Component.literal("退出登录"), b -> doLogout())
+                .bounds(cx - 40, this.height - 40, 80, 20).build();
+        addRenderableWidget(logoutBtn);
+    }
+
+    private void doLogout() {
+        try {
+            java.nio.file.Files.deleteIfExists(SessionStore.debugPath());
+        } catch (Exception ignored) {}
+        userDetail = null;
+        userSubcount = null;
+        updateLoginStatus();
+        setTab(Tab.PLAYER);
+    }
+
+    private void togglePlayPause() {
+        var state = MusicController.getState();
+        if (state == StreamingMp3Player.State.PAUSED) {
+            MusicController.togglePause();
+        } else if (state == StreamingMp3Player.State.PLAYING || state == StreamingMp3Player.State.BUFFERING) {
+            MusicController.togglePause();
+        } else if (state == StreamingMp3Player.State.STOPPED || state == StreamingMp3Player.State.IDLE) {
+            // 如果停止了，从播放列表开始播放
+            if (Playlist.size() > 0) {
+                int idx = Playlist.getCurrentIndex();
+                if (idx < 0) idx = 0;
+                Playlist.playAt(idx);
+            }
+        }
     }
 
     private void setTab(Tab t) {
         this.tab = t;
-        this.errorText = "";
 
-        boolean search = (t == Tab.SEARCH);
+        boolean player = (t == Tab.PLAYER);
+        boolean playlist = (t == Tab.PLAYLIST);
+        boolean userInfo = (t == Tab.USER_INFO);
         boolean qr = (t == Tab.QR_LOGIN);
 
-        toQrBtn.visible = search;
-        backToSearchBtn.visible = qr;
-        keywordBox.visible = search;
-        searchBtn.visible = search;
-        pauseBtn.visible = search;
-        stopBtn.visible = search;
-        clearSessionBtn.visible = search;
-        for (Button b : songButtons) b.visible = search;
+        // 播放器页面
+        loginBtn.visible = player;
+        userBtn.visible = player;
+        keywordBox.visible = player;
+        searchBtn.visible = player;
+        prevBtn.visible = player;
+        playPauseBtn.visible = player;
+        nextBtn.visible = player;
+        shuffleBtn.visible = player;
+        repeatBtn.visible = player;
+        playlistBtn.visible = player;
+        for (Button b : searchResultButtons) b.visible = player;
+
+        // 播放列表页面
+        backFromPlaylistBtn.visible = playlist;
+        for (Button b : playlistButtons) b.visible = playlist;
+
+        // 用户信息页面
+        backFromUserBtn.visible = userInfo;
+        logoutBtn.visible = userInfo;
+
+        // 扫码页面
+        backBtn.visible = qr;
         refreshQrBtn.visible = qr;
 
-        if (qr) {
-            if (qrTextureLocation == null) refreshQrAsync();
-        } else {
-            stopPolling();
+        if (qr && qrTextureLocation == null) {
+            refreshQrAsync();
         }
-        refreshInfo();
+        if (playlist) {
+            rebuildPlaylistButtons();
+        }
+        if (userInfo) {
+            loadUserInfoAsync();
+        }
+
+        updateLoginStatus();
     }
 
-    private void refreshInfo() {
+    private void loadUserInfoAsync() {
         SessionStore.Session session = SessionStore.loadOrNull();
-        if (session == null) {
-            infoText = I18n.translateString(I18n.MUSIC_INFO_WELCOME);
+        if (session == null || !CookieSanitizer.hasMusicU(session.cookieForApi())) {
             return;
         }
-        boolean has = CookieSanitizer.hasMusicU(session.cookieForApi());
-        infoText = has ? I18n.translateString(I18n.MUSIC_INFO_LOGGED_IN) : I18n.translateString(I18n.MUSIC_INFO_LOGIN_INCOMPLETE);
+        if (loadingUserInfo) return;
+        loadingUserInfo = true;
+
+        String apiUrl = session.baseUrl() == null || session.baseUrl().isBlank() ? baseUrl : session.baseUrl();
+        NcmApiClient client = new NcmApiClient(apiUrl);
+        String cookie = session.cookieForApi();
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                var account = client.getUserAccount(cookie);
+                if (account != null && account.userId() > 0) {
+                    userDetail = client.getUserDetail(account.userId(), cookie);
+                    userSubcount = client.getUserSubcount(cookie);
+
+                    // 保存用户信息
+                    SessionStore.Session newSession = new SessionStore.Session(
+                            session.baseUrl(), session.cookieForApi(), session.savedAtEpochMs(),
+                            account.userId(), account.nickname(), account.avatarUrl(), account.vipType()
+                    );
+                    SessionStore.save(newSession);
+                    Minecraft.getInstance().execute(this::updateLoginStatus);
+                }
+            } catch (Exception ignored) {
+            } finally {
+                loadingUserInfo = false;
+            }
+        }, exec);
     }
 
-    private void clearSongButtons() {
-        for (Button b : songButtons) removeWidget(b);
-        songButtons.clear();
-    }
-
-    private void clearSession() {
-        try {
-            var p = SessionStore.debugPath();
-            if (Files.exists(p)) Files.delete(p);
-            refreshInfo();
-            infoText = I18n.translateString(I18n.MUSIC_INFO_LOGGED_OUT);
-        } catch (Exception e) {
-            errorText = I18n.translateString(I18n.MUSIC_ERROR_CLEAR_FAILED, e.getMessage());
-        }
-    }
+    // ==================== 搜索 ====================
 
     private void doSearchAsync() {
-        errorText = "";
-        clearSongButtons();
+        clearSearchButtons();
 
         SessionStore.Session session = SessionStore.loadOrNull();
-        if (session == null) {
-            errorText = I18n.translateString(I18n.MUSIC_ERROR_NOT_LOGGED_IN);
-            return;
-        }
-        String cookie = session.cookieForApi();
-        if (!CookieSanitizer.hasMusicU(cookie)) {
-            errorText = I18n.translateString(I18n.MUSIC_ERROR_LOGIN_EXPIRED);
+        if (session == null || !CookieSanitizer.hasMusicU(session.cookieForApi())) {
             return;
         }
 
         String keywords = keywordBox.getValue().trim();
-        if (keywords.isEmpty()) {
-            errorText = I18n.translateString(I18n.MUSIC_ERROR_EMPTY_KEYWORD);
-            return;
-        }
+        if (keywords.isEmpty()) return;
 
-        NcmApiClient client = new NcmApiClient(session.baseUrl() == null || session.baseUrl().isBlank() ? baseUrl : session.baseUrl());
+        NcmApiClient client = new NcmApiClient(
+                session.baseUrl() == null || session.baseUrl().isBlank() ? baseUrl : session.baseUrl());
 
-        int searchLimit = ModConfig.COMMON.musicSearchLimit.get();
-        infoText = I18n.translateString(I18n.MUSIC_INFO_SEARCHING);
+        int limit = ModConfig.COMMON.musicSearchLimit.get();
+
         CompletableFuture.supplyAsync(() -> {
             try {
-                return client.search(keywords, searchLimit, cookie);
+                return client.search(keywords, limit, session.cookieForApi());
             } catch (Exception e) {
                 throw new CompletionException(e);
             }
         }, exec).whenComplete((songs, err) -> Minecraft.getInstance().execute(() -> {
-            if (err != null) {
-                errorText = (err.getCause() != null ? err.getCause().getMessage() : err.getMessage());
-                infoText = I18n.translateString(I18n.MUSIC_INFO_SEARCH_FAILED);
-                return;
-            }
-            if (songs == null || songs.isEmpty()) {
-                infoText = I18n.translateString(I18n.MUSIC_INFO_NO_RESULTS);
-                return;
-            }
-            infoText = I18n.translateString(I18n.MUSIC_INFO_FOUND_SONGS, songs.size());
-            renderSongButtons(songs);
+            if (err != null || songs == null || songs.isEmpty()) return;
+            searchResults = new ArrayList<>(songs);
+            searchScrollOffset = 0;
+            rebuildSearchButtons();
         }));
     }
 
-    private void renderSongButtons(List<NcmApiClient.SearchSong> songs) {
-        clearSongButtons();
-        currentSongs = new ArrayList<>(songs);
-        scrollOffset = 0;
-        rebuildSongButtons();
+    private void clearSearchButtons() {
+        for (Button b : searchResultButtons) removeWidget(b);
+        searchResultButtons.clear();
     }
 
-    private void rebuildSongButtons() {
-        for (Button b : songButtons) removeWidget(b);
-        songButtons.clear();
+    private void rebuildSearchButtons() {
+        clearSearchButtons();
+        if (searchResults.isEmpty()) return;
 
-        if (currentSongs.isEmpty()) return;
+        int maxVisible = listH / LIST_ITEM_HEIGHT;
+        int maxScroll = Math.max(0, searchResults.size() - maxVisible);
+        searchScrollOffset = Math.max(0, Math.min(searchScrollOffset, maxScroll));
+
+        int endIdx = Math.min(searchScrollOffset + maxVisible, searchResults.size());
+
+        for (int i = searchScrollOffset; i < endIdx; i++) {
+            var song = searchResults.get(i);
+            int yy = listY + (i - searchScrollOffset) * LIST_ITEM_HEIGHT;
+
+            String label = truncate(song.name() + " - " + song.artist(), listW / 6);
+            Button btn = Button.builder(Component.literal(label), b -> Playlist.play(song)).bounds(listX, yy, listW - 30, LIST_ITEM_HEIGHT - 2).build();
+            searchResultButtons.add(btn);
+            addRenderableWidget(btn);
+
+            // 添加到列表
+            Button addBtn = Button.builder(Component.literal("+"), b -> Playlist.add(song))
+                    .bounds(listX + listW - 26, yy, 24, LIST_ITEM_HEIGHT - 2).build();
+            searchResultButtons.add(addBtn);
+            addRenderableWidget(addBtn);
+        }
+
+        for (Button b : searchResultButtons) b.visible = (tab == Tab.PLAYER);
+    }
+
+    // ==================== 播放列表 ====================
+
+    private void clearPlaylistButtons() {
+        for (Button b : playlistButtons) removeWidget(b);
+        playlistButtons.clear();
+    }
+
+    private void rebuildPlaylistButtons() {
+        clearPlaylistButtons();
+        var songs = Playlist.getSongs();
+        if (songs.isEmpty()) return;
+
+        int maxVisible = (this.height - HEADER_HEIGHT - 50) / LIST_ITEM_HEIGHT;
+        int maxScroll = Math.max(0, songs.size() - maxVisible);
+        playlistScrollOffset = Math.max(0, Math.min(playlistScrollOffset, maxScroll));
+
+        int endIdx = Math.min(playlistScrollOffset + maxVisible, songs.size());
+        int currentIdx = Playlist.getCurrentIndex();
 
         int cx = this.width / 2;
-        int listWidth = Math.min(360, this.width - 40);
-        int x = cx - listWidth / 2;
-        int y = HEADER_HEIGHT + 38;
-        int h = 20;
-        int gap = 2;
+        int w = Math.min(340, this.width - 40);
+        int x = cx - w / 2;
 
-        int availableHeight = this.height - FOOTER_HEIGHT - y - 5;
-        int maxVisible = availableHeight / (h + gap);
-        int maxScroll = Math.max(0, currentSongs.size() - maxVisible);
-        if (scrollOffset > maxScroll) scrollOffset = maxScroll;
-        if (scrollOffset < 0) scrollOffset = 0;
+        for (int i = playlistScrollOffset; i < endIdx; i++) {
+            var song = songs.get(i);
+            int yy = HEADER_HEIGHT + 10 + (i - playlistScrollOffset) * LIST_ITEM_HEIGHT;
 
-        int endIndex = Math.min(scrollOffset + maxVisible, currentSongs.size());
+            String prefix = (i == currentIdx) ? "▶ " : "    ";
+            String label = prefix + truncate(song.name() + " - " + song.artist(), (w - 30) / 6);
 
-        for (int i = scrollOffset; i < endIndex; i++) {
-            var s = currentSongs.get(i);
-            String artist = s.artist().isBlank() ? "" : " - " + s.artist();
-            String label = "♪ " + s.name() + artist;
-
-            int maxLen = listWidth / 6;
-            if (label.length() > maxLen) label = label.substring(0, maxLen) + "...";
-
-            int yy = y + (i - scrollOffset) * (h + gap);
-
-            final String songName = s.name();
+            final int idx = i;
             Button btn = Button.builder(Component.literal(label), b -> {
-                        MusicController.playSongId(s.id());
-                        infoText = I18n.translateString(I18n.MUSIC_INFO_NOW_PLAYING, songName);
-                    })
-                    .bounds(x, yy, listWidth, h)
-                    .build();
-            songButtons.add(btn);
+                Playlist.playAt(idx);
+                rebuildPlaylistButtons();
+            }).bounds(x, yy, w - 30, LIST_ITEM_HEIGHT - 2).build();
+            playlistButtons.add(btn);
             addRenderableWidget(btn);
+
+            Button removeBtn = Button.builder(Component.literal("×"), b -> {
+                Playlist.remove(idx);
+                rebuildPlaylistButtons();
+            }).bounds(x + w - 26, yy, 24, LIST_ITEM_HEIGHT - 2).build();
+            playlistButtons.add(removeBtn);
+            addRenderableWidget(removeBtn);
         }
 
-        if (currentSongs.size() > maxVisible) {
-            infoText = I18n.translateString(I18n.MUSIC_INFO_FOUND_SONGS_SCROLL, currentSongs.size(), scrollOffset + 1, endIndex);
-        } else {
-            infoText = I18n.translateString(I18n.MUSIC_INFO_FOUND_SONGS, currentSongs.size());
-        }
-
-        for (Button b : songButtons) b.visible = (tab == Tab.SEARCH);
+        for (Button b : playlistButtons) b.visible = (tab == Tab.PLAYLIST);
     }
+
+    private String truncate(String s, int max) {
+        return s.length() <= max ? s : s.substring(0, max - 2) + "..";
+    }
+
+    // ==================== 扫码登录 ====================
 
     private void refreshQrAsync() {
         stopPolling();
         qrStatus = I18n.translateString(I18n.MUSIC_QR_GENERATING);
-        errorText = "";
         lastCode = -1;
 
         NcmApiClient client = new NcmApiClient(baseUrl);
@@ -337,21 +523,19 @@ public final class MusicScreen extends Screen {
                         loadQrTexture(qrimg);
                         qrStatus = I18n.translateString(I18n.MUSIC_QR_SCAN_CONFIRM);
                     } catch (Exception e) {
-                        errorText = I18n.translateString(I18n.MUSIC_QR_RENDER_FAILED, e.getMessage());
-                        qrStatus = I18n.translateString(I18n.MUSIC_QR_RENDER_FAILED_SHORT);
+                        qrStatus = "渲染失败";
                     }
                 });
 
                 startPolling(client);
             } catch (Exception e) {
-                errorText = e.getClass().getSimpleName() + ": " + e.getMessage();
-                qrStatus = I18n.translateString(I18n.MUSIC_QR_GENERATE_FAILED);
+                qrStatus = "生成失败: " + e.getMessage();
             }
         }, exec);
     }
 
     private void startPolling(NcmApiClient client) {
-        if (exec == null || unikey == null || unikey.isBlank()) return;
+        if (exec == null || unikey == null) return;
 
         pollFuture = exec.scheduleAtFixedRate(() -> {
             try {
@@ -363,41 +547,30 @@ public final class MusicScreen extends Screen {
                         ? check.get("cookie").getAsString() : "";
 
                 switch (code) {
-                    case 801 -> qrStatus = I18n.translateString(I18n.MUSIC_QR_WAITING_SCAN);
-                    case 802 -> qrStatus = I18n.translateString(I18n.MUSIC_QR_SCANNED_CONFIRM);
+                    case 801 -> qrStatus = "等待扫码...";
+                    case 802 -> qrStatus = "已扫码，请确认";
                     case 800 -> {
-                        qrStatus = I18n.translateString(I18n.MUSIC_QR_EXPIRED_REFRESH);
+                        qrStatus = "二维码过期";
                         Minecraft.getInstance().execute(this::refreshQrAsync);
                     }
                     case 803 -> {
-                        qrStatus = I18n.translateString(I18n.MUSIC_QR_LOGIN_SUCCESS_SAVING);
+                        qrStatus = "登录成功！";
                         onLoginSuccess(cookieRaw);
                     }
-                    default -> qrStatus = I18n.translateString(I18n.MUSIC_QR_STATUS, code);
+                    default -> qrStatus = "状态: " + code;
                 }
-            } catch (Exception e) {
-                errorText = e.getClass().getSimpleName() + ": " + e.getMessage();
-            }
+            } catch (Exception ignored) {}
         }, 0, 2, TimeUnit.SECONDS);
     }
 
     private void onLoginSuccess(String cookieRaw) {
         stopPolling();
-
         String cookieForApi = CookieSanitizer.sanitizeForApi(cookieRaw);
-        boolean ok = CookieSanitizer.hasMusicU(cookieForApi);
-
         try {
             SessionStore.save(new SessionStore.Session(baseUrl, cookieForApi, System.currentTimeMillis()));
-            refreshInfo();
-            qrStatus = ok ? I18n.translateString(I18n.MUSIC_QR_SAVED_OK) : I18n.translateString(I18n.MUSIC_QR_SAVED_MISSING);
-        } catch (Exception e) {
-            errorText = I18n.translateString(I18n.MUSIC_QR_SAVE_FAILED, e.getMessage());
-            qrStatus = I18n.translateString(I18n.MUSIC_QR_SAVE_FAILED_SHORT);
-            return;
-        }
-
-        Minecraft.getInstance().execute(() -> setTab(Tab.SEARCH));
+            updateLoginStatus();
+            Minecraft.getInstance().execute(() -> setTab(Tab.PLAYER));
+        } catch (Exception ignored) {}
     }
 
     private void stopPolling() {
@@ -409,10 +582,8 @@ public final class MusicScreen extends Screen {
 
     private void loadQrTexture(String dataUrl) throws Exception {
         deleteQrTexture();
-
         String prefix = "data:image/png;base64,";
         String b64 = dataUrl.startsWith(prefix) ? dataUrl.substring(prefix.length()) : dataUrl;
-
         byte[] png = Base64.getDecoder().decode(b64);
         try (ByteArrayInputStream in = new ByteArrayInputStream(png)) {
             NativeImage src = NativeImage.read(in);
@@ -420,9 +591,8 @@ public final class MusicScreen extends Screen {
             qrH = src.getHeight();
             qrTexture = new DynamicTexture(src);
         }
-
         TextureManager tm = Minecraft.getInstance().getTextureManager();
-        qrTextureLocation = ResourceLocation.fromNamespaceAndPath("ncmplayer", "ncm_qr/" + UUID.randomUUID());
+        qrTextureLocation = ResourceLocation.fromNamespaceAndPath("ncmplayer", "qr/" + UUID.randomUUID());
         tm.register(qrTextureLocation, qrTexture);
         tm.getTexture(qrTextureLocation).setFilter(false, false);
     }
@@ -433,119 +603,343 @@ public final class MusicScreen extends Screen {
             try { qrTexture.close(); } catch (Exception ignored) {}
             qrTexture = null;
         }
-        qrW = 0;
-        qrH = 0;
+        qrW = qrH = 0;
     }
+
+    // ==================== 输入 ====================
 
     @Override
     public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-        if (tab == Tab.SEARCH && !currentSongs.isEmpty()) {
-            int scrollAmount = (int) -scrollY;
-            int newOffset = scrollOffset + scrollAmount;
-
-            int y = HEADER_HEIGHT + 38;
-            int h = 20;
-            int gap = 2;
-            int availableHeight = this.height - FOOTER_HEIGHT - y - 5;
-            int maxVisible = availableHeight / (h + gap);
-            int maxScroll = Math.max(0, currentSongs.size() - maxVisible);
-
-            newOffset = Math.max(0, Math.min(maxScroll, newOffset));
-
-            if (newOffset != scrollOffset) {
-                scrollOffset = newOffset;
-                rebuildSongButtons();
-                return true;
-            }
+        if (tab == Tab.PLAYER && mouseY >= listY && mouseY <= listY + listH) {
+            searchScrollOffset -= (int) scrollY;
+            rebuildSearchButtons();
+            return true;
+        }
+        if (tab == Tab.PLAYLIST) {
+            playlistScrollOffset -= (int) scrollY;
+            rebuildPlaylistButtons();
+            return true;
         }
         return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
     }
 
     @Override
+    public boolean mouseClicked(double mouseX, double mouseY, int button) {
+        if (button == 0 && tab == Tab.PLAYER) {
+            // 进度条 - 只有在有歌曲播放且可以跳转时才允许拖动
+            if (isInRect(mouseX, mouseY, progressBarX - 5, progressBarY - 8, progressBarW + 10, progressBarH + 16)) {
+                if (MusicController.canSeek() && MusicController.getDurationMs() > 0) {
+                    draggingProgress = true;
+                    updateProgressFromMouse(mouseX);
+                    return true;
+                }
+            }
+            // 音量
+            if (isInRect(mouseX, mouseY, volumeSliderX - 3, volumeSliderY - 6, volumeSliderW + 6, volumeSliderH + 12)) {
+                draggingVolume = true;
+                updateVolumeFromMouse(mouseX);
+                return true;
+            }
+        }
+        return super.mouseClicked(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseReleased(double mouseX, double mouseY, int button) {
+        if (button == 0) {
+            if (draggingProgress) {
+                MusicController.seekToProgress(dragProgress);
+                draggingProgress = false;
+            }
+            draggingVolume = false;
+        }
+        return super.mouseReleased(mouseX, mouseY, button);
+    }
+
+    @Override
+    public boolean mouseDragged(double mouseX, double mouseY, int button, double dragX, double dragY) {
+        if (button == 0) {
+            if (draggingVolume) {
+                updateVolumeFromMouse(mouseX);
+                return true;
+            }
+            if (draggingProgress) {
+                updateProgressFromMouse(mouseX);
+                return true;
+            }
+        }
+        return super.mouseDragged(mouseX, mouseY, button, dragX, dragY);
+    }
+
+    private boolean isInRect(double mx, double my, int x, int y, int w, int h) {
+        return mx >= x && mx <= x + w && my >= y && my <= y + h;
+    }
+
+    private void updateVolumeFromMouse(double mouseX) {
+        float v = (float) (mouseX - volumeSliderX) / volumeSliderW;
+        MusicController.setVolume(Math.max(0, Math.min(1, v)));
+    }
+
+    private void updateProgressFromMouse(double mouseX) {
+        dragProgress = (float) (mouseX - progressBarX) / progressBarW;
+        dragProgress = Math.max(0, Math.min(1, dragProgress));
+    }
+
+    // ==================== 渲染 ====================
+
+    @Override
     public boolean isPauseScreen() { return false; }
 
     @Override
-    public void renderBackground(GuiGraphics graphics, int mouseX, int mouseY, float partialTick) {}
+    public void renderBackground(GuiGraphics g, int mouseX, int mouseY, float pt) {}
 
     @Override
-    public void renderTransparentBackground(GuiGraphics graphics) {}
+    public void renderTransparentBackground(GuiGraphics g) {}
 
     @Override
-    public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
-        g.fill(0, 0, this.width, this.height, COLOR_BG_DARK);
+    public void render(GuiGraphics g, int mouseX, int mouseY, float pt) {
+        // 背景
+        g.fill(0, 0, width, height, COLOR_BG);
 
-        int cx = this.width / 2;
-
-        g.fill(0, 0, this.width, HEADER_HEIGHT, COLOR_BG_PANEL);
-        g.fill(0, HEADER_HEIGHT - 2, this.width, HEADER_HEIGHT, COLOR_ACCENT);
-        g.drawCenteredString(this.font, this.title, cx, 6, COLOR_TEXT_PRIMARY);
-
-        int infoColor = COLOR_TEXT_SECONDARY;
-        if (infoText.contains("✅")) infoColor = COLOR_TEXT_SUCCESS;
-        else if (infoText.contains("🔍") || infoText.contains("🎵") || infoText.contains("✨")) infoColor = COLOR_ACCENT_LIGHT;
-        g.drawCenteredString(this.font, infoText, cx, 22, infoColor);
-
-        if (!errorText.isBlank()) {
-            g.drawCenteredString(this.font, "❌ " + errorText, cx, 36, COLOR_TEXT_ERROR);
+        if (tab == Tab.PLAYER) {
+            renderPlayerTab(g, mouseX, mouseY);
+        } else if (tab == Tab.PLAYLIST) {
+            renderPlaylistTab(g);
+        } else if (tab == Tab.USER_INFO) {
+            renderUserInfoTab(g);
+        } else {
+            renderQrTab(g);
         }
 
-        int footerTop = this.height - FOOTER_HEIGHT;
-        g.fill(0, footerTop, this.width, this.height, COLOR_BG_PANEL);
-        g.fill(0, footerTop, this.width, footerTop + 2, COLOR_BORDER);
-
-        if (tab == Tab.QR_LOGIN) drawQrPanel(g);
-
-        super.render(g, mouseX, mouseY, partialTick);
+        super.render(g, mouseX, mouseY, pt);
     }
 
-    private void drawQrPanel(GuiGraphics g) {
-        int cx = this.width / 2;
+    private void renderPlayerTab(GuiGraphics g, int mouseX, int mouseY) {
+        int cx = width / 2;
 
-        int refreshY = (refreshQrBtn != null ? refreshQrBtn.getY() : (this.height - 28));
-        int statusTextY = refreshY - 18;
-        int bottomLimit = statusTextY - 8;
+        // 标题（居中）
+        g.drawCenteredString(font, "♪ 网易云音乐", cx, 12, COLOR_TEXT);
 
-        int topMin = 56;
-        int maxBoxSizeByHeight = Math.max(120, bottomLimit - topMin);
-        int preferred = 180;
-        int boxSize = Math.min(preferred, maxBoxSizeByHeight);
+        // 底部面板
+        int footerTop = height - FOOTER_HEIGHT;
+        g.fill(0, footerTop, width, height, COLOR_PANEL);
 
-        int boxX = cx - boxSize / 2;
-        int top = topMin + (bottomLimit - topMin - boxSize) / 2;
-        if (top < topMin) top = topMin;
+        // 进度条
+        drawProgressBar(g, mouseX, mouseY);
 
-        int padding = 2;
-        int inner = boxSize - padding * 2;
+        // 音量条
+        drawVolumeSlider(g);
 
-        int borderSize = 3;
-        g.fill(boxX - borderSize, top - borderSize,
-               boxX + boxSize + borderSize, top + boxSize + borderSize, COLOR_ACCENT);
-        g.fill(boxX, top, boxX + boxSize, top + boxSize, FastColor.ARGB32.color(255, 255, 255, 255));
+        // 更新播放按钮图标
+        var state = MusicController.getState();
+        String icon = (state == StreamingMp3Player.State.PLAYING || state == StreamingMp3Player.State.BUFFERING) ? "⏸" : "▶";
+        playPauseBtn.setMessage(Component.literal(icon));
 
-        if (qrTextureLocation != null && qrW > 0 && qrH > 0) {
-            RenderSystem.disableBlend();
-            RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
+        // 更新模式按钮状态
+        updateModeButtons();
+    }
 
-            float scaleF = Math.min((float) inner / qrW, (float) inner / qrH);
-            int drawW = Math.max(1, Math.round(qrW * scaleF));
-            int drawH = Math.max(1, Math.round(qrH * scaleF));
+    private void updateModeButtons() {
+        // 循环模式反馈
+        String repeatIcon = switch (Playlist.getRepeatMode()) {
+            case NONE -> "🔁";
+            case ALL -> "🔂";  // 列表循环用不同图标
+            case ONE -> "🔂";  // 单曲循环
+        };
+        repeatBtn.setMessage(Component.literal(repeatIcon));
+    }
 
-            int dx = boxX + padding + (inner - drawW) / 2;
-            int dy = top + padding + (inner - drawH) / 2;
+    private void drawProgressBar(GuiGraphics g, int mouseX, int mouseY) {
+        var state = MusicController.getState();
+        long durationMs = MusicController.getDurationMs();
 
-            g.blit(qrTextureLocation, dx, dy, drawW, drawH, 0, 0, qrW, qrH, qrW, qrH);
-            RenderSystem.enableBlend();
-        } else {
-            g.drawCenteredString(this.font, I18n.translateString(I18n.MUSIC_QR_LOADING), cx, top + boxSize / 2 - 4, 0x888888);
+        boolean hasPlayback = (state == StreamingMp3Player.State.PLAYING ||
+                               state == StreamingMp3Player.State.BUFFERING ||
+                               state == StreamingMp3Player.State.PAUSED) && durationMs > 0;
+
+        // 进度条背景
+        g.fill(progressBarX, progressBarY, progressBarX + progressBarW, progressBarY + progressBarH, COLOR_SLIDER_BG);
+
+        if (!hasPlayback) {
+            // 显示 --:-- / --:--
+            g.drawString(font, "--:--", progressBarX - 28, progressBarY - 2, COLOR_TEXT_DIM);
+            g.drawString(font, "--:--", progressBarX + progressBarW + 3, progressBarY - 2, COLOR_TEXT_DIM);
+            return;
         }
 
-        int statusColor = COLOR_TEXT_SECONDARY;
-        String statusIcon = "📱 ";
+        long playedMs = MusicController.getPlayedMs();
+        float progress;
+        if (draggingProgress) {
+            progress = dragProgress;
+            playedMs = (long) (durationMs * dragProgress);
+        } else {
+            progress = MusicController.getProgress();
+        }
 
-        if (lastCode == 803) { statusColor = COLOR_TEXT_SUCCESS; statusIcon = "✅ "; }
-        else if (lastCode == 800 || qrStatus.contains("failed") || qrStatus.contains("失败")) { statusColor = COLOR_TEXT_ERROR; statusIcon = "❌ "; }
-        else if (lastCode == 801 || lastCode == 802) { statusColor = COLOR_ACCENT_LIGHT; statusIcon = "📲 "; }
+        // 时间文本（小字）
+        String played = MusicController.formatTime(playedMs);
+        String total = MusicController.formatTime(durationMs);
+        g.drawString(font, played, progressBarX - 28, progressBarY - 2, COLOR_TEXT_DIM);
+        g.drawString(font, total, progressBarX + progressBarW + 3, progressBarY - 2, COLOR_TEXT_DIM);
 
-        g.drawCenteredString(this.font, statusIcon + qrStatus, cx, statusTextY, statusColor);
+        // 进度填充
+        int filledW = (int) (progressBarW * progress);
+        if (filledW > 0) {
+            g.fill(progressBarX, progressBarY, progressBarX + filledW, progressBarY + progressBarH, COLOR_ACCENT);
+        }
+
+        // 滑块（小圆点，悬停时显示）
+        boolean hover = isInRect(mouseX, mouseY, progressBarX - 5, progressBarY - 6, progressBarW + 10, 16);
+        if (hover || draggingProgress) {
+            int hx = progressBarX + filledW - 3;
+            g.fill(hx, progressBarY - 2, hx + 6, progressBarY + progressBarH + 2, COLOR_SLIDER_HANDLE);
+        }
+    }
+
+    private void drawVolumeSlider(GuiGraphics g) {
+
+        // 背景
+        g.fill(volumeSliderX, volumeSliderY, volumeSliderX + volumeSliderW, volumeSliderY + volumeSliderH, COLOR_SLIDER_BG);
+
+        // 填充
+        float vol = MusicController.getVolume();
+        int filledW = (int) (volumeSliderW * vol);
+        if (filledW > 0) {
+            g.fill(volumeSliderX, volumeSliderY, volumeSliderX + filledW, volumeSliderY + volumeSliderH,
+                    FastColor.ARGB32.color(255, 100, 180, 100));
+        }
+
+        // 手柄
+        int hx = volumeSliderX + filledW - 3;
+        g.fill(hx, volumeSliderY - 2, hx + 6, volumeSliderY + volumeSliderH + 2, COLOR_SLIDER_HANDLE);
+    }
+
+    private void renderPlaylistTab(GuiGraphics g) {
+        int cx = width / 2;
+        g.drawCenteredString(font, "播放列表 (" + Playlist.size() + ")", cx, 14, COLOR_TEXT);
+
+        if (Playlist.isEmpty()) {
+            g.drawCenteredString(font, "播放列表为空", cx, height / 2, COLOR_TEXT_DIM);
+        }
+    }
+
+    private void renderQrTab(GuiGraphics g) {
+        int cx = width / 2;
+
+        // 标题
+        g.drawCenteredString(font, "扫码登录", cx, 12, COLOR_TEXT);
+
+        // 二维码（居中显示）
+        int qrSize = Math.min(160, Math.min(width - 60, height - 120));
+        int qrX = cx - qrSize / 2;
+        int qrY = (height - qrSize) / 2 - 20;
+
+        // 白色背景 + 红色边框
+        g.fill(qrX - 4, qrY - 4, qrX + qrSize + 4, qrY + qrSize + 4, COLOR_ACCENT);
+        g.fill(qrX, qrY, qrX + qrSize, qrY + qrSize, 0xFFFFFFFF);
+
+        if (qrTextureLocation != null && qrW > 0) {
+            RenderSystem.disableBlend();
+            RenderSystem.setShaderColor(1, 1, 1, 1);
+
+            float scale = Math.min((float) qrSize / qrW, (float) qrSize / qrH);
+            int dw = Math.round(qrW * scale);
+            int dh = Math.round(qrH * scale);
+            int dx = qrX + (qrSize - dw) / 2;
+            int dy = qrY + (qrSize - dh) / 2;
+
+            g.blit(qrTextureLocation, dx, dy, dw, dh, 0, 0, qrW, qrH, qrW, qrH);
+            RenderSystem.enableBlend();
+        } else {
+            g.drawCenteredString(font, "⏳", cx, qrY + qrSize / 2, COLOR_TEXT_DIM);
+        }
+
+        // 状态文字（二维码下方）
+        int statusY = qrY + qrSize + 15;
+        int statusColor = switch (lastCode) {
+            case 803 -> COLOR_TEXT_SUCCESS;
+            case 800 -> 0xFF6666;
+            case 802 -> 0xFFFF66;
+            default -> COLOR_TEXT_DIM;
+        };
+        g.drawCenteredString(font, qrStatus, cx, statusY, statusColor);
+    }
+
+    private void renderUserInfoTab(GuiGraphics g) {
+        int cx = width / 2;
+        int contentW = Math.min(320, width - 40);
+        int contentL = cx - contentW / 2;
+
+        // 标题
+        g.drawCenteredString(font, "用户信息", cx, 14, COLOR_TEXT);
+
+        // 检查登录状态
+        SessionStore.Session session = SessionStore.loadOrNull();
+        if (session == null || !CookieSanitizer.hasMusicU(session.cookieForApi())) {
+            g.drawCenteredString(font, "未登录", cx, height / 2 - 20, COLOR_TEXT_DIM);
+            g.drawCenteredString(font, "请先扫码登录", cx, height / 2, COLOR_TEXT_DIM);
+            return;
+        }
+
+        int y = 45;
+        int lineH = 18;
+
+        // 用户基本信息
+        if (userDetail != null) {
+            // 昵称和VIP
+            String nickname = userDetail.nickname();
+            String vip = userDetail.vipTypeString();
+            int vipColor = userDetail.vipType() > 0 ? 0xFFD700 : COLOR_TEXT_DIM;
+
+            g.drawCenteredString(font, nickname, cx, y, COLOR_TEXT);
+            y += lineH;
+
+            if (userDetail.vipType() > 0) {
+                g.drawCenteredString(font, vip, cx, y, vipColor);
+                y += lineH;
+            }
+
+            y += 5;
+
+            // 等级
+            g.drawString(font, "等级: Lv." + userDetail.level(), contentL, y, COLOR_TEXT_DIM);
+            y += lineH;
+
+            // 累计听歌
+            g.drawString(font, "累计听歌: " + userDetail.listenSongs() + " 首", contentL, y, COLOR_TEXT_DIM);
+            y += lineH;
+
+            // 签名
+            if (userDetail.signature() != null && !userDetail.signature().isBlank()) {
+                y += 5;
+                String sig = userDetail.signature();
+                if (sig.length() > 30) sig = sig.substring(0, 30) + "...";
+                g.drawString(font, "签名: " + sig, contentL, y, COLOR_TEXT_DIM);
+                y += lineH;
+            }
+        } else if (loadingUserInfo) {
+            g.drawCenteredString(font, "加载中...", cx, y + 30, COLOR_TEXT_DIM);
+        } else if (session.hasUserInfo()) {
+            // 从 session 显示基本信息
+            g.drawCenteredString(font, session.nickname(), cx, y, COLOR_TEXT);
+            y += lineH;
+            if (session.vipType() != null && session.vipType() > 0) {
+                g.drawCenteredString(font, session.vipTypeString().trim(), cx, y, 0xFFD700);
+                y += lineH;
+            }
+        }
+
+        // 统计信息
+        if (userSubcount != null) {
+            y += 10;
+            g.fill(contentL, y, contentL + contentW, y + 1, COLOR_ACCENT_DIM);
+            y += 10;
+
+            g.drawString(font, "创建歌单: " + userSubcount.playlistCount(), contentL, y, COLOR_TEXT_DIM);
+            y += lineH;
+            g.drawString(font, "收藏歌单: " + userSubcount.subPlaylistCount(), contentL, y, COLOR_TEXT_DIM);
+            y += lineH;
+            g.drawString(font, "收藏歌手: " + userSubcount.artistCount(), contentL, y, COLOR_TEXT_DIM);
+        }
     }
 }

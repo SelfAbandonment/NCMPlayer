@@ -10,7 +10,7 @@ NCM Player 是一个 NeoForge 模组，让你可以在 Minecraft 游戏中搜索
 ## ⚠️ 重要提示
 
 **本模组需要自建网易云音乐 API 服务器才能正常工作！**
-
+提供一个 自建的 https://api-enhanced-plum-five.vercel.app
 如果没有配置 API 服务器，模组将无法：
 - 扫码登录
 - 搜索歌曲

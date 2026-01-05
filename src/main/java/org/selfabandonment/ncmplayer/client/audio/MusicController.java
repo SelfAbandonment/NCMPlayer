@@ -3,6 +3,7 @@ package org.selfabandonment.ncmplayer.client.audio;
 import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import org.selfabandonment.ncmplayer.NcmPlayer;
+import org.selfabandonment.ncmplayer.client.lyric.LyricManager;
 import org.selfabandonment.ncmplayer.config.ModConfig;
 import org.selfabandonment.ncmplayer.ncm.CookieSanitizer;
 import org.selfabandonment.ncmplayer.ncm.NcmApiClient;
@@ -161,6 +162,20 @@ public final class MusicController {
     }
 
     /**
+     * 暂停播放
+     */
+    public static void pause() {
+        PLAYER.pause();
+    }
+
+    /**
+     * 继续播放
+     */
+    public static void resume() {
+        PLAYER.resume();
+    }
+
+    /**
      * 获取当前音量
      */
     @SuppressWarnings("unused")
@@ -280,7 +295,11 @@ public final class MusicController {
                 PLAYER.setKnownDuration(durationMs);
             }
 
-            sendMessage(I18n.translateString(I18n.MSG_MUSIC_PLAYING, songId));
+            // 加载歌词
+            loadLyricsForSong(songId);
+
+            // 不再在聊天中显示播放消息
+            // sendMessage(I18n.translateString(I18n.MSG_MUSIC_PLAYING, songId));
         } catch (Exception e) {
             sendMessage(I18n.translateString(I18n.MSG_MUSIC_PLAY_FAILED, e.getMessage()));
             LOGGER.error("Failed to play song {}", songId, e);
@@ -318,6 +337,41 @@ public final class MusicController {
         provider = new SongUrlProvider(api, cookieForApi);
     }
 
+    /**
+     * 加载歌词
+     */
+    private static void loadLyricsForSong(long songId) {
+        String baseUrl = ModConfig.COMMON.musicApiUrl.get();
+        SessionStore.Session session = SessionStore.loadOrNull();
+        if (session != null && session.baseUrl() != null && !session.baseUrl().isBlank()) {
+            baseUrl = session.baseUrl();
+        }
+        LyricManager.loadLyrics(songId, baseUrl);
+    }
+
+    /**
+     * 获取当前歌词
+     */
+    public static String getCurrentLyric() {
+        long playedMs = getPlayedMs();
+        return LyricManager.getCurrentLyric(playedMs);
+    }
+
+    /**
+     * 获取当前和下一行歌词
+     */
+    public static String[] getCurrentAndNextLyric() {
+        long playedMs = getPlayedMs();
+        return LyricManager.getCurrentAndNextLyric(playedMs);
+    }
+
+    /**
+     * 是否有歌词
+     */
+    public static boolean hasLyrics() {
+        return LyricManager.hasLyrics();
+    }
+
     private static void sendMessage(String message) {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null) {
@@ -325,4 +379,3 @@ public final class MusicController {
         }
     }
 }
-

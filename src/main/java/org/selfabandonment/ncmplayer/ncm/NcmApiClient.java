@@ -95,6 +95,47 @@ public final class NcmApiClient {
         return GSON.fromJson(resp.body(), JsonObject.class);
     }
 
+    // ==================== 歌词 ====================
+
+    /**
+     * 获取歌词
+     *
+     * @param songId 歌曲 ID
+     * @return LRC 格式歌词内容，如果没有歌词返回 null
+     */
+    public String getLyric(long songId) throws IOException, InterruptedException {
+        long ts = System.currentTimeMillis();
+        JsonObject obj = getJson("/lyric?id=" + songId + "&timestamp=" + ts);
+
+        // 优先获取翻译歌词，如果没有则获取原版歌词
+        if (obj.has("lrc") && !obj.get("lrc").isJsonNull()) {
+            JsonObject lrc = obj.getAsJsonObject("lrc");
+            if (lrc.has("lyric") && !lrc.get("lyric").isJsonNull()) {
+                return lrc.get("lyric").getAsString();
+            }
+        }
+        return null;
+    }
+
+    /**
+     * 获取翻译歌词
+     *
+     * @param songId 歌曲 ID
+     * @return 翻译歌词内容，如果没有返回 null
+     */
+    public String getTranslatedLyric(long songId) throws IOException, InterruptedException {
+        long ts = System.currentTimeMillis();
+        JsonObject obj = getJson("/lyric?id=" + songId + "&timestamp=" + ts);
+
+        if (obj.has("tlyric") && !obj.get("tlyric").isJsonNull()) {
+            JsonObject tlyric = obj.getAsJsonObject("tlyric");
+            if (tlyric.has("lyric") && !tlyric.get("lyric").isJsonNull()) {
+                return tlyric.get("lyric").getAsString();
+            }
+        }
+        return null;
+    }
+
     // ==================== 扫码登录 ====================
 
     public String qrKey() throws IOException, InterruptedException {

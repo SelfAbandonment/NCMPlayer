@@ -88,5 +88,18 @@ public final class SessionStore {
             return null;
         }
     }
+
+    /**
+     * 清除会话（退出登录）
+     */
+    public static void clear() {
+        try {
+            Path p = filePath();
+            if (Files.exists(p)) {
+                Files.delete(p);
+            }
+        } catch (Exception ignored) {
+        }
+    }
 }
 
